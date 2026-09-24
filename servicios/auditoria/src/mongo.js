@@ -16,6 +16,16 @@ export function crearRepo(db) {
         if (e.code !== 11000) throw e // 11000: el evento ya estaba registrado
       }
     },
-    listar: async (cedula, { limite = 100 } = {}) => (await col.find({ cedula }).sort({ ocurridoEn: -1 }).limit(limite).toArray()).map(aAcceso),
+    // Filtros opcionales: documento y rango de días de Colombia (UTC-5, sin horario de verano); `hasta` incluye ese día.
+    async listar(cedula, { documentoId, desde, hasta, limite = 100 } = {}) {
+      const filtro = { cedula, ...(documentoId && { documentoId }) }
+      if (desde || hasta) {
+        filtro.ocurridoEn = {
+          ...(desde && { $gte: new Date(`${desde}T00:00:00-05:00`) }),
+          ...(hasta && { $lt: new Date(new Date(`${hasta}T00:00:00-05:00`).getTime() + 86_400_000) }),
+        }
+      }
+      return (await col.find(filtro).sort({ ocurridoEn: -1 }).limit(limite).toArray()).map(aAcceso)
+    },
   }
 }

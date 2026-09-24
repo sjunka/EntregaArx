@@ -5,6 +5,7 @@ const CUSTODIA = import.meta.env.VITE_MCS_CUSTODIA || 'http://localhost:8083'
 const NOTIFICACIONES = import.meta.env.VITE_MCS_NOTIFICACIONES || 'http://localhost:8087'
 const INDICE = import.meta.env.VITE_MCS_INDICE || 'http://localhost:8091'
 const AUTORIZACIONES = import.meta.env.VITE_MCS_AUTORIZACIONES || 'http://localhost:8093'
+const AUDITORIA = import.meta.env.VITE_MCS_AUDITORIA || 'http://localhost:8092'
 const PREMIUM = import.meta.env.VITE_MCS_PREMIUM || 'http://localhost:8095'
 const INTEROPERABILIDAD = import.meta.env.VITE_MCS_INTEROPERABILIDAD || 'http://localhost:8086'
 
@@ -86,6 +87,10 @@ export const envios = () => conSesion('/envios', {}, INTEROPERABILIDAD)
 export const traslado = () => conSesion('/traslados/actual', {}, INTEROPERABILIDAD).catch((e) => { if (e.status === 404) return null; throw e })
 export const activar = ({ token, clave }) =>
   pedir(`${AFILIACION}/traslados/activacion`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token, clave }) })
+
+// HU-11: bitácora de accesos a la Carpeta (MS-02), con filtros por documento y por rango de días.
+export const accesos = (filtros = {}) =>
+  conSesion(`/accesos?${new URLSearchParams(Object.entries(filtros).filter(([, v]) => v))}`, {}, AUDITORIA)
 
 export const preferencias = () => conSesion('/preferencias', {}, NOTIFICACIONES)
 export const guardarPreferencias = (canales) =>

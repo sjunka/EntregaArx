@@ -49,6 +49,33 @@ test('sin token o con un token de otra audiencia: 401', async () => {
   assert.equal((await pedir('/accesos', { t: await token({ aud: 'custodia' }) })).status, 401)
 })
 
+test('los filtros por documento y por rango de fechas llegan al repositorio; sin filtros no se pide ninguno', async () => {
+  const pedidos = []
+  const repo = { listar: async (c, f) => { pedidos.push(f); return [] } }
+  const id = '2b1f3f6e-9d1c-4a52-8f43-0d5e4f6a7b8c'
+  assert.equal((await pedir(`/accesos?documentoId=${id}&desde=2026-09-01&hasta=2026-09-30`, { repo })).status, 200)
+  assert.equal((await pedir('/accesos', { repo })).status, 200)
+  assert.deepEqual(pedidos, [{ documentoId: id, desde: '2026-09-01', hasta: '2026-09-30' }, {}])
+})
+
+test('filtros mal formados: 422 problem+json y no se lee la bitácora', async () => {
+  const repo = { listar: async () => assert.fail('no debe leer') }
+  for (const q of ['documentoId=no-es-uuid', 'desde=ayer', 'hasta=2026-13-45', 'desde=2026-09-30&hasta=2026-09-01', 'desde=2026-09-01&desde=2026-09-02']) {
+    const r = await pedir(`/accesos?${q}`, { repo })
+    assert.equal(r.status, 422, q)
+    assert.match(r.tipo, /problem\+json/)
+  }
+})
+
+test('solo el titular ve sus accesos: un token válido que no es del portal o sin cédula recibe 403', async () => {
+  const repo = { listar: async () => assert.fail('no debe leer') }
+  for (const t of [await token({ azp: 'interoperabilidad' }), await token({ cedula: '' })]) {
+    const r = await pedir('/accesos', { t, repo })
+    assert.equal(r.status, 403)
+    assert.match(r.tipo, /problem\+json/)
+  }
+})
+
 test('el repositorio solo puede agregar y listar', async () => {
   const repo = crearRepo({ collection: () => ({}) })
   assert.deepEqual(Object.keys(repo).sort(), ['agregar', 'indices', 'listar'])
@@ -69,6 +96,12 @@ test('agregar es idempotente por evento y listar solo devuelve los del titular, 
     await repo.agregar({ ...base, eventoId: 'e3', cedula: '2000000002', ocurridoEn: '2026-09-24T12:00:00Z' })
     const lista = await repo.listar('1012345678')
     assert.deepEqual(lista.map((a) => [a.accion, a.actor.tipo]), [['lectura-tercero', 'tercero'], ['descarga', 'titular']])
+    // filtros: documento y rango de días de Colombia (UTC-5); `hasta` incluye todo ese día.
+    await repo.agregar({ ...base, eventoId: 'e4', documentoId: 'd2', ocurridoEn: '2026-09-25T04:00:00Z' }) // 24 sep 23:00 en Colombia
+    assert.deepEqual((await repo.listar('1012345678', { documentoId: 'd2' })).map((a) => a.documentoId), ['d2'])
+    assert.equal((await repo.listar('1012345678', { desde: '2026-09-24', hasta: '2026-09-24' })).length, 3)
+    assert.equal((await repo.listar('1012345678', { desde: '2026-09-25' })).length, 0)
+    assert.equal((await repo.listar('1012345678', { hasta: '2026-09-23' })).length, 0)
     await db.dropDatabase()
   } finally { await cliente.close() }
 })
