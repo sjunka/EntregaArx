@@ -8,6 +8,7 @@ R=us-east1
 TAG=${IMAGEN_TAG:-latest}
 cd "$(dirname "$0")/../.."
 TF="terraform -chdir=infra/terraform"
+export TF_CLI_ARGS_apply="-auto-approve"
 
 # 1. Proyecto, APIs y registro. El resto del plan necesita las imágenes, que aún no existen.
 $TF init
@@ -24,7 +25,7 @@ build keycloak infra/keycloak Dockerfile
 build esquemas . infra/gcp/esquemas.Dockerfile
 
 # 3. Bases, Kafka y jobs primero: migraciones (RD-10) y esquemas corren antes de que existan los servicios.
-$TF apply -target=google_cloud_run_v2_job.migrar -target=google_cloud_run_v2_job.esquemas -target=google_compute_instance.kafka -target=google_sql_database.base
+$TF apply -target=google_cloud_run_v2_job.migrar -target=google_cloud_run_v2_job.esquemas -target=google_compute_instance.kafka -target=google_compute_firewall.kafka -target=google_sql_database.base
 for j in afiliacion autorizaciones premium custodia interoperabilidad; do
   gcloud run jobs execute "mcs-migrar-$j" --project "$P" --region "$R" --wait
 done
