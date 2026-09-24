@@ -1,6 +1,9 @@
 {
   "realm": "carpeta",
   "enabled": true,
+  "internationalizationEnabled": true,
+  "supportedLocales": ["es"],
+  "defaultLocale": "es",
   "sslRequired": "external",
   "accessTokenLifespan": 300,
   "bruteForceProtected": true,

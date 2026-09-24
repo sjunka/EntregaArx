@@ -65,7 +65,10 @@ export async function subir({ titulo, archivo }, alAvanzar) {
   const put = await fetch(urlCarga, { method: 'PUT', headers: { 'content-type': archivo.type }, body: archivo }).catch(() => null)
   if (!put?.ok) throw new ErrorServicio(0, 'No se pudo subir el archivo', 'La carga se interrumpió. Intenta de nuevo.')
   alAvanzar('verificando')
-  return conSesion(`/documentos/${id}/confirmacion`, { method: 'POST' })
+  const doc = await conSesion(`/documentos/${id}/confirmacion`, { method: 'POST' })
+  // El índice (MS-05) se alimenta por Kafka y llega unos segundos después: esperarlo para no mostrar la carpeta sin el documento.
+  for (let i = 0; i < 20 && !(await buscar()).some((d) => d.id === id); i++) await new Promise((r) => setTimeout(r, 500))
+  return doc
 }
 
 export const autenticar = (id) => conSesion(`/documentos/${id}/autenticacion`, { method: 'POST' })
