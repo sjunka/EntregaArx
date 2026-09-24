@@ -1,0 +1,24 @@
+# Mi Carpeta Segura en local: docker compose up -d --build
+# SPA 4173 · emisor OIDC 8081
+name: mcs
+
+services:
+  identidad:
+    build: ./identidad
+    restart: unless-stopped
+    environment:
+      # iss que ve el navegador; los servicios leen el JWKS por la red interna (OIDC_JWKS_URL).
+      OIDC_ISSUER: http://localhost:8081/realms/carpeta
+      PORTAL_REDIRECTS: http://localhost:4173/*,http://localhost:5173/*
+      ORIGENES: http://localhost:4173,http://localhost:5173
+      USUARIO_DEMO_CLAVE: ${USUARIO_DEMO_CLAVE:?copia .env.example a .env}
+    ports: ["8081:8080"]
+
+  web:
+    build:
+      context: ./web
+      args:
+        VITE_OIDC_AUTHORITY: http://localhost:8081/realms/carpeta
+    restart: unless-stopped
+    depends_on: { identidad: { condition: service_healthy } }
+    ports: ["4173:80"]
