@@ -1,0 +1,23 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mcs.example/contratos/eventos/ciudadano-afiliado.v1.schema.json",
+  "title": "Ciudadano afiliado (data de un CloudEvent 1.0)",
+  "description": "MS-03 publica este hecho al afiliar a un ciudadano. MS-09 guarda el contacto para avisarle por el canal que elija (HU-05). Los datos de contacto nunca viajan a GovCarpeta (RD-15, RNF-21): solo por este bus interno.",
+  "x-cloudevent": {
+    "type": "co.carpetasegura.ciudadano.afiliado",
+    "source": "/mcs/afiliacion",
+    "subject": "ciudadano/{cedula}",
+    "tema": "mcs.ciudadano.afiliado",
+    "sujetoRegistro": "mcs.ciudadano.afiliado-value"
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["cedula", "cuenta", "correoContacto", "telefono", "afiliadoEn"],
+  "properties": {
+    "cedula": { "type": "string", "pattern": "^[0-9]{6,10}$" },
+    "cuenta": { "type": "string", "description": "Cuenta institucional" },
+    "correoContacto": { "type": "string", "format": "email" },
+    "telefono": { "type": "string", "pattern": "^3[0-9]{9}$" },
+    "afiliadoEn": { "type": "string", "format": "date-time" }
+  }
+}

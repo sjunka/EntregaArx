@@ -2,6 +2,8 @@ import pg from 'pg'
 import { crearApp, crearLimite } from './app.js'
 import { crearKeycloak } from './keycloak.js'
 import { crearPasarela } from './pasarela.js'
+import { Kafka, Partitioners } from 'kafkajs'
+import { crearBandeja, crearPublicador, crearRegistro, iniciarRelevo } from './eventos.js'
 
 const env = process.env
 const db = new pg.Pool({ connectionString: env.DATABASE_URL })
@@ -14,9 +16,17 @@ if (process.argv.includes('--migrar')) {
     estado text NOT NULL CHECK (estado IN ('pendiente', 'afiliado')),
     creado timestamptz NOT NULL DEFAULT now()
   )`)
+  await crearBandeja(db).migrar()
   console.log(JSON.stringify({ nivel: 'info', mensaje: 'migración de afiliacion aplicada' }))
   await db.end()
 } else {
+  // Relevo de la bandeja de salida hacia Kafka (CloudEvents con esquema en Schema Registry).
+  const productor = new Kafka({ clientId: 'afiliacion', brokers: env.KAFKA_BROKERS.split(',') }).producer({ createPartitioner: Partitioners.DefaultPartitioner })
+  await productor.connect()
+  iniciarRelevo({
+    bandeja: crearBandeja(db), log: (nivel, mensaje, extra) => console.log(JSON.stringify({ nivel, mensaje, ...extra })),
+    publicar: crearPublicador({ productor, registro: crearRegistro(env.SCHEMA_REGISTRY_URL), urlRegistro: env.SCHEMA_REGISTRY_URL }),
+  })
   const app = crearApp({
     db,
     pasarela: crearPasarela({ url: env.PASARELA_URL }),

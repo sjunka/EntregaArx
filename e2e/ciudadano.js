@@ -2,16 +2,19 @@ import { expect } from '@playwright/test'
 
 export const AFILIACION = process.env.AFILIACION_URL ?? 'http://localhost:8082'
 export const CUSTODIA = process.env.CUSTODIA_URL ?? 'http://localhost:8083'
+export const NOTIFICACIONES = process.env.NOTIFICACIONES_URL ?? 'http://localhost:8087'
+export const ENTIDAD = process.env.ENTIDAD_URL ?? 'http://localhost:8088'
+export const MAILPIT = process.env.MAILPIT_URL ?? 'http://localhost:8025'
 export const CLAVE = 'clave-de-prueba-e2e-2026'
 
 // Afilia a un ciudadano nuevo por la API real (el doble de GovCarpeta de compose recibe el alta).
 export async function afiliar(request) {
   const cedula = `98${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 90 + 10)}`
   const r = await request.post(`${AFILIACION}/ciudadanos`, {
-    data: { cedula, nombre: 'Prueba', apellido: 'Eetoe', direccion: 'Calle 10 # 20-30, Bogotá', correoContacto: 'prueba.e2e@example.com', telefono: '3001234567', clave: CLAVE },
+    data: { cedula, nombre: 'Prueba', apellido: 'Eetoe', direccion: 'Calle 10 # 20-30, Bogotá', correoContacto: `prueba.${cedula}@example.com`, telefono: '3001234567', clave: CLAVE },
   })
   expect(r.status(), await r.text()).toBe(201)
-  return { cedula, cuenta: (await r.json()).cuenta }
+  return { cedula, cuenta: (await r.json()).cuenta, correo: `prueba.${cedula}@example.com` }
 }
 
 export async function ingresar(page, cuenta, clave = CLAVE) {

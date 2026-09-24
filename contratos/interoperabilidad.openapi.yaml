@@ -1,0 +1,125 @@
+openapi: 3.1.0
+info:
+  title: Interoperabilidad (MS-07)
+  version: 0.1.0
+  description: >
+    Recibe los documentos que emiten las entidades (HU-05: RF-03.2, RF-03.3, RNF-05). Como no existe
+    contrato MinTIC para esta interfaz (B-01), el operador define uno propio y lo dice aquí.
+    La entidad se autentica firmando: cada solicitud lleva un JWS compacto (RS256 o ES256) cuyo
+    `iss` es el emisor y cuyo payload repite `idExterno`, `cedula`, `titulo` y `sha256`; se verifica con
+    la llave pública que el operador tiene registrada para ese emisor. El binario nunca viaja por
+    este servicio (RI-06): la entidad lo sube con la URL PUT prefirmada de 5 minutos que recibe en el
+    paso 1 y después confirma. El contenido tampoco pasa por GovCarpeta (RI-01).
+servers:
+  - url: http://localhost:8086
+security: []
+paths:
+  /api/documentos:
+    post:
+      operationId: emitirDocumento
+      summary: Paso 1. Anuncia un documento emitido, con su firma
+      description: >
+        Idempotente por (emisor, idExterno): un reenvío devuelve el mismo documento con 200 y no lo
+        duplica. Firma inválida: el Certificado queda Rechazado, no entra a la Carpeta y la
+        entidad recibe el motivo con 422 (`estado: rechazado`). Un emisor sin llave registrada
+        recibe 403 y no se guarda nada. Un destinatario que no esté afiliado a este operador
+        recibe 422.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Emision' }
+      responses:
+        '201':
+          description: Recibido. Sube el archivo a `urlCarga` y confirma.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Recibido' }
+        '200':
+          description: Reenvío idempotente; mismo documento y estado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Recibido' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '413': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
+  /api/documentos/{id}/confirmacion:
+    post:
+      operationId: confirmarEmision
+      summary: Paso 2. La entidad terminó de subir el archivo
+      description: >
+        La custodia compara tamaño, tipo y SHA-256 con lo firmado. Coinciden: Verificado y Vigente,
+        entra a la Carpeta y se publica el evento de recepción. No coinciden: Rechazado (422).
+        Si el archivo aún no llegó responde 409 y se puede reintentar. Confirmar de nuevo un
+        Vigente responde 200 sin duplicar el evento.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Vigente
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, estado]
+                properties:
+                  id: { type: string, format: uuid }
+                  estado: { type: string, const: vigente }
+                  sustituyeA: { type: string, format: uuid, description: Temporal equivalente que pasó a Sustituido }
+        '404': { $ref: '#/components/responses/Problema' }
+        '409': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
+  /salud:
+    get:
+      operationId: salud
+      summary: Chequeo de salud
+      responses:
+        '200':
+          description: Servicio sano
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [estado]
+                properties:
+                  estado: { type: string, const: ok }
+components:
+  schemas:
+    Emision:
+      type: object
+      required: [emisor, idExterno, cedula, titulo, tipo, tamano, sha256, firma]
+      properties:
+        emisor: { type: string, description: 'Identificador de la entidad; es el mismo `iss` de la firma' }
+        idExterno: { type: string, maxLength: 120, description: Identificador del documento en la entidad; hace idempotente el envío }
+        cedula: { type: string, pattern: '^[0-9]{6,10}$', description: Titular al que va dirigido }
+        titulo: { type: string, minLength: 1, maxLength: 120 }
+        tipo: { type: string, enum: [application/pdf, image/jpeg, image/png] }
+        tamano: { type: integer, minimum: 1, maximum: 10485760 }
+        sha256: { type: string, pattern: '^[0-9a-f]{64}$', description: Huella del archivo que se subirá }
+        firma:
+          type: string
+          description: JWS compacto con payload {idExterno, cedula, titulo, sha256} e `iss` igual al emisor
+    Recibido:
+      type: object
+      required: [id, estado]
+      properties:
+        id: { type: string, format: uuid }
+        estado: { type: string, enum: [recibido, vigente] }
+        urlCarga: { type: string, format: uri, description: URL PUT prefirmada de 5 minutos; solo mientras esté Recibido }
+  responses:
+    Problema:
+      description: Error RFC 9457
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            required: [type, title, status]
+            properties:
+              type: { type: string }
+              title: { type: string }
+              status: { type: integer }
+              detail: { type: string }
+              id: { type: string, format: uuid, description: Documento que quedó Rechazado }
+              estado: { type: string, description: rechazado }

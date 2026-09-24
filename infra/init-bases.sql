@@ -2,3 +2,4 @@
 CREATE DATABASE identidad;
 CREATE DATABASE afiliacion;
 CREATE DATABASE custodia;
+CREATE DATABASE interoperabilidad;

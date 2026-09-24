@@ -93,9 +93,15 @@ export function crearApp({
       }
     }
     await keycloak.habilitar(idUsuario)
+    // El hecho y su evento se escriben en una sola sentencia (bandeja de salida): nunca uno sin el otro. El contacto
+    // viaja solo por el bus interno hacia MS-09, nunca a GovCarpeta (RD-15, RNF-21).
+    const evento = { cedula: d.cedula, cuenta, correoContacto: d.correoContacto, telefono: d.telefono, afiliadoEn: new Date().toISOString() }
     await db.query(
-      `INSERT INTO ciudadanos (cedula, cuenta, estado) VALUES ($1, $2, 'afiliado')
-       ON CONFLICT (cedula) DO UPDATE SET cuenta = $2, estado = 'afiliado'`, [d.cedula, cuenta])
+      `WITH c AS (
+         INSERT INTO ciudadanos (cedula, cuenta, estado) VALUES ($1, $2, 'afiliado')
+         ON CONFLICT (cedula) DO UPDATE SET cuenta = $2, estado = 'afiliado' RETURNING cedula)
+       INSERT INTO bandeja (nombre, clave, datos) SELECT 'ciudadano.afiliado', cedula, $3::jsonb FROM c`,
+      [d.cedula, cuenta, JSON.stringify(evento)])
     log('info', 'ciudadano afiliado', { cedula })
     res.status(201).json({ cedula: d.cedula, cuenta, estado: 'afiliado', identidad: 'simulada' })
   })

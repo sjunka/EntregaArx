@@ -69,8 +69,9 @@ ${error ? `<p class="error" role="alert" id="error">${error}</p>` : ''}
 }
 
 // usuarios: repositorio (src/usuarios.js) con porCuenta, crear, habilitar, borrar y el conteo de intentos (bloqueo, fallo, exito).
-// clientes: { clientId: [redirects, admite * final] }; administradores: { clientId: secreto } para el Admin API.
-export function crearApp({ emisor, llave, usuarios, clientes, administradores = {}, origenes = [] }) {
+// clientes: { clientId: [redirects, admite * final] }; administradores: { clientId: secreto } para el Admin API;
+// servicios: { clientId: { secreto, audiencia } } para client_credentials entre servicios (ADR-0006).
+export function crearApp({ emisor, llave, usuarios, clientes, administradores = {}, servicios = {}, origenes = [] }) {
   const app = express()
   const base = new URL(emisor).pathname.replace(/\/$/, '')
   const oidc = `${base}/protocol/openid-connect`
@@ -147,6 +148,14 @@ export function crearApp({ emisor, llave, usuarios, clientes, administradores = 
   app.post(`${oidc}/token`, async (req, res) => {
     const p = req.body ?? {}
     const falla = (error, status = 400) => res.status(status).json({ error })
+    if (p.grant_type === 'client_credentials' && Object.hasOwn(servicios, p.client_id)) {
+      const { secreto, audiencia } = servicios[p.client_id]
+      if (typeof p.client_secret !== 'string' || !iguales(secreto, p.client_secret)) return falla('unauthorized_client', 401)
+      return res.set('cache-control', 'no-store').json({
+        token_type: 'Bearer', expires_in: VIDA_TOKEN,
+        access_token: await firmar({ sub: p.client_id, azp: p.client_id, typ: 'Bearer' }, audiencia, VIDA_TOKEN),
+      })
+    }
     if (p.grant_type === 'client_credentials') {
       const secreto = Object.hasOwn(administradores, p.client_id) ? administradores[p.client_id] : null
       if (!secreto || typeof p.client_secret !== 'string' || !iguales(secreto, p.client_secret)) return falla('unauthorized_client', 401)
@@ -173,7 +182,8 @@ export function crearApp({ emisor, llave, usuarios, clientes, administradores = 
       token_type: 'Bearer',
       expires_in: VIDA_TOKEN,
       scope: 'openid profile email',
-      access_token: await firmar({ ...perfil, typ: 'Bearer', scope: 'openid profile email', cedula: u.cedula }, 'custodia', VIDA_TOKEN),
+      // Audiencias: la custodia y notificaciones (MS-09) validan el mismo token del ciudadano.
+      access_token: await firmar({ ...perfil, typ: 'Bearer', scope: 'openid profile email', cedula: u.cedula }, ['custodia', 'notificaciones'], VIDA_TOKEN),
       id_token: await firmar({ ...perfil, typ: 'ID', nonce: c.nonce }, c.azp, VIDA_TOKEN),
     })
   })

@@ -1,5 +1,6 @@
 # Mi Carpeta Segura en local: docker compose up -d --build
-# SPA 4173 · emisor OIDC 8081 · afiliación 8082 · custodia 8083 · pasarela 8084 · MinIO 9000 (consola 9001) · GovCarpeta simulado 8090
+# SPA 4173 · emisor OIDC 8081 · afiliación 8082 · custodia 8083 · pasarela 8084 · Schema Registry 8085
+# interoperabilidad 8086 · notificaciones 8087 · entidad simulada 8088 · MinIO 9000 (consola 9001) · Mailpit 8025 · GovCarpeta simulado 8090
 name: mcs
 
 x-migracion: &migracion
@@ -18,6 +19,52 @@ services:
       test: pg_isready -U postgres
       interval: 5s
       retries: 20
+
+  # Bus de eventos (AD-05): Kafka en modo KRaft, un solo nodo, y Schema Registry con los esquemas de contratos/eventos.
+  kafka:
+    image: apache/kafka:3.9.0
+    restart: unless-stopped
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    healthcheck:
+      test: /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 >/dev/null
+      interval: 5s
+      retries: 30
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.7.1
+    restart: unless-stopped
+    depends_on: { kafka: { condition: service_healthy } }
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: kafka:9092
+      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
+    ports: ["8085:8081"]
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8081/subjects >/dev/null"]
+      interval: 5s
+      retries: 30
+
+  esquemas:
+    image: node:22-alpine
+    restart: "no"
+    depends_on: { schema-registry: { condition: service_healthy } }
+    environment:
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+    volumes:
+      - ./infra/registrar-esquemas.mjs:/app/registrar-esquemas.mjs:ro
+      - ./contratos/eventos:/app/eventos:ro
+    command: ["node", "/app/registrar-esquemas.mjs", "/app/eventos"]
 
   # Almacén de objetos: el navegador sube y baja los binarios directo, por URL prefirmada (RI-06).
   minio:
@@ -39,10 +86,26 @@ services:
     depends_on: { minio: { condition: service_healthy } }
     entrypoint: >
       sh -c "mc alias set local http://minio:9000 $$S3_ACCESS_KEY $$S3_SECRET_KEY &&
-             mc mb --ignore-existing local/mcs-documentos"
+             mc mb --ignore-existing local/mcs-documentos &&
+             mc mb --ignore-existing local/mcs-certificados"
     environment:
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY}
+
+  # MongoDB de MS-09 (una base por servicio, RD-11) y el buzón de pruebas donde caen sus correos.
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes: [mongodata:/data/db]
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval \"db.adminCommand('ping').ok\" | grep -q 1"]
+      interval: 5s
+      retries: 20
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports: ["8025:8025"]
 
   migrar-identidad:
     <<: *migracion
@@ -63,6 +126,7 @@ services:
       PORTAL_REDIRECTS: http://localhost:4173/*,http://localhost:5173/*
       ORIGENES: http://localhost:4173,http://localhost:5173
       KC_AFILIACION_SECRETO: ${KC_AFILIACION_SECRETO:?copia .env.example a .env}
+      KC_INTEROP_SECRETO: ${KC_INTEROP_SECRETO:?copia .env.example a .env}
     ports: ["8081:8080"]
 
   # Doble de GovCarpeta: compose nunca escribe en el real (B-06, GOVCARPETA_ESCRITURA).
@@ -98,9 +162,13 @@ services:
       migrar-afiliacion: { condition: service_completed_successfully }
       identidad: { condition: service_healthy }
       pasarela: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      esquemas: { condition: service_completed_successfully }
     environment:
       DATABASE_URL: postgres://postgres:${PG_CLAVE}@postgres/afiliacion
       PASARELA_URL: http://pasarela:8080
+      KAFKA_BROKERS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
       KEYCLOAK_URL: http://identidad:8080
       KEYCLOAK_SECRETO: ${KC_AFILIACION_SECRETO}
       # En local todas las pruebas salen de la misma IP; en la nube queda el valor por defecto (5).
@@ -135,9 +203,67 @@ services:
       S3_ENDPOINT_PUBLICO: http://localhost:9000
       S3_REGION: us-east-1
       S3_BUCKET: mcs-documentos
+      S3_BUCKET_CERTIFICADOS: mcs-certificados
       S3_ACCESS_KEY: ${S3_ACCESS_KEY}
       S3_SECRET_KEY: ${S3_SECRET_KEY}
     ports: ["8083:8080"]
+
+  # Entidad emisora simulada: firma y entrega certificados como lo haría una universidad (B-01).
+  entidad:
+    build: ./infra/entidad-simulada
+    restart: unless-stopped
+    environment:
+      EMISOR: universidad-demo
+      INTEROP_URL: http://interoperabilidad:8080
+      ALMACEN_CONEXION: minio:9000
+    ports: ["8088:8080"]
+
+  migrar-interoperabilidad:
+    <<: *migracion
+    build: ./servicios/interoperabilidad
+    command: ["node", "src/server.js", "--migrar"]
+    environment:
+      DATABASE_URL: postgres://postgres:${PG_CLAVE}@postgres/interoperabilidad
+
+  interoperabilidad:
+    build: ./servicios/interoperabilidad
+    restart: unless-stopped
+    depends_on:
+      migrar-interoperabilidad: { condition: service_completed_successfully }
+      kafka: { condition: service_healthy }
+      esquemas: { condition: service_completed_successfully }
+      custodia: { condition: service_healthy }
+      pasarela: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://postgres:${PG_CLAVE}@postgres/interoperabilidad
+      KAFKA_BROKERS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      PASARELA_URL: http://pasarela:8080
+      CUSTODIA_URL: http://custodia:8080
+      OIDC_INTERNO_URL: http://identidad:8080/realms/carpeta
+      KC_INTEROP_SECRETO: ${KC_INTEROP_SECRETO}
+      # Directorio de entidades emisoras y su llave pública (id=urlJWKS;id=urlJWKS).
+      EMISORES: universidad-demo=http://entidad:8080/.well-known/jwks.json
+    ports: ["8086:8080"]
+
+  notificaciones:
+    build: ./servicios/notificaciones
+    restart: unless-stopped
+    depends_on:
+      mongo: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      esquemas: { condition: service_completed_successfully }
+      identidad: { condition: service_healthy }
+      mailpit: { condition: service_started }
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+      KAFKA_BROKERS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      SMTP_URL: smtp://mailpit:1025
+      OIDC_ISSUER: http://localhost:8081/realms/carpeta
+      OIDC_JWKS_URL: http://identidad:8080/realms/carpeta/protocol/openid-connect/certs
+      ORIGENES: http://localhost:4173,http://localhost:5173
+    ports: ["8087:8080"]
 
   web:
     build:
@@ -146,6 +272,7 @@ services:
         VITE_OIDC_AUTHORITY: http://localhost:8081/realms/carpeta
         VITE_MCS_AFILIACION: http://localhost:8082
         VITE_MCS_CUSTODIA: http://localhost:8083
+        VITE_MCS_NOTIFICACIONES: http://localhost:8087
     restart: unless-stopped
     depends_on: { identidad: { condition: service_healthy } }
     ports: ["4173:80"]
@@ -153,3 +280,4 @@ services:
 volumes:
   pgdata:
   miniodata:
+  mongodata:

@@ -2,6 +2,7 @@ import { sesion } from './sesion.js'
 
 export const AFILIACION = import.meta.env.VITE_MCS_AFILIACION || 'http://localhost:8082'
 const CUSTODIA = import.meta.env.VITE_MCS_CUSTODIA || 'http://localhost:8083'
+const NOTIFICACIONES = import.meta.env.VITE_MCS_NOTIFICACIONES || 'http://localhost:8087'
 
 export class ErrorServicio extends Error {
   constructor(status, titulo, detalle) {
@@ -28,12 +29,12 @@ export const registrar = (datos) =>
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(datos),
   })
 
-// Llamadas a la custodia con el token de la sesión; un 401 (token vencido o inválido) cierra la sesión local.
-async function conSesion(ruta, opciones = {}) {
+// Llamadas a la custodia (o a notificaciones) con el token de la sesión; un 401 (token vencido o inválido) cierra la sesión local.
+async function conSesion(ruta, opciones = {}, base = CUSTODIA) {
   const usuario = await sesion.getUser()
   if (!usuario || usuario.expired) throw new ErrorServicio(401, 'Sesión vencida', 'Tu sesión venció. Ingresa de nuevo.')
   try {
-    return await pedir(`${CUSTODIA}${ruta}`, { ...opciones, headers: { authorization: `Bearer ${usuario.access_token}`, ...(opciones.body && { 'content-type': 'application/json' }), ...opciones.headers } })
+    return await pedir(`${base}${ruta}`, { ...opciones, headers: { authorization: `Bearer ${usuario.access_token}`, ...(opciones.body && { 'content-type': 'application/json' }), ...opciones.headers } })
   } catch (e) {
     if (e.status === 401) await sesion.removeUser()
     throw e
@@ -58,3 +59,8 @@ export async function subir({ titulo, archivo }, alAvanzar) {
 }
 
 export const autenticar = (id) => conSesion(`/documentos/${id}/autenticacion`, { method: 'POST' })
+
+export const preferencias = () => conSesion('/preferencias', {}, NOTIFICACIONES)
+export const guardarPreferencias = (canales) =>
+  conSesion('/preferencias', { method: 'PUT', body: JSON.stringify({ canales }) }, NOTIFICACIONES)
+export const avisos = () => conSesion('/notificaciones', {}, NOTIFICACIONES)

@@ -1,7 +1,10 @@
+// Sin tildes, mayúsculas ni espacios de más: «Diploma de Ingeniería» y «diploma  de ingenieria» son el mismo título.
+export const normalizarTitulo = (t) => t.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim()
+
 // Repositorio de documentos en la base de custodia (RD-11). Un documento es del titular por cédula.
 const aDocumento = (f) => f && ({
   id: f.id, titular: f.titular, titulo: f.titulo, clase: f.clase, estado: f.estado, tipo: f.tipo, tamano: Number(f.tamano),
-  sha256: f.sha256, creado: f.creado,
+  sha256: f.sha256, creado: f.creado, emisor: f.emisor, idExterno: f.id_externo, sustituidoPor: f.sustituido_por, motivo: f.motivo,
   autenticacion: f.autenticado_en ? { fecha: f.autenticado_en, respuesta: f.respuesta_centralizador } : null,
 })
 
@@ -25,7 +28,18 @@ export async function migrar(db) {
   await db.query('ALTER TABLE documentos ADD COLUMN IF NOT EXISTS autenticado_en timestamptz')
   await db.query('ALTER TABLE documentos ADD COLUMN IF NOT EXISTS respuesta_centralizador text')
   await db.query('ALTER TABLE documentos DROP CONSTRAINT IF EXISTS documentos_estado')
-  await db.query("ALTER TABLE documentos ADD CONSTRAINT documentos_estado CHECK (estado IN ('pendiente', 'cargado'))")
+  // HU-05: Certificados (Recibido, Verificado, Vigente, Rechazado, Retirado) y Temporales Sustituidos o Eliminados.
+  await db.query('ALTER TABLE documentos ADD COLUMN IF NOT EXISTS titulo_norm text')
+  await db.query('ALTER TABLE documentos ADD COLUMN IF NOT EXISTS emisor text')
+  await db.query('ALTER TABLE documentos ADD COLUMN IF NOT EXISTS id_externo text')
+  await db.query('ALTER TABLE documentos ADD COLUMN IF NOT EXISTS motivo text')
+  await db.query('ALTER TABLE documentos ADD COLUMN IF NOT EXISTS sustituido_por uuid REFERENCES documentos (id)')
+  await db.query(`ALTER TABLE documentos ADD CONSTRAINT documentos_estado CHECK (estado IN
+    ('pendiente', 'cargado', 'sustituido', 'eliminado', 'recibido', 'verificado', 'vigente', 'rechazado', 'retirado'))`)
+  await db.query('CREATE UNIQUE INDEX IF NOT EXISTS documentos_externo ON documentos (emisor, id_externo) WHERE id_externo IS NOT NULL')
+  for (const f of (await db.query('SELECT id, titulo FROM documentos WHERE titulo_norm IS NULL')).rows) {
+    await db.query('UPDATE documentos SET titulo_norm = $2 WHERE id = $1', [f.id, normalizarTitulo(f.titulo)])
+  }
   await db.query('CREATE INDEX IF NOT EXISTS documentos_titular ON documentos (titular)')
 }
 
@@ -39,14 +53,43 @@ export function crearRepositorio(db) {
       return { documentos: u.documentos, bytes: Number(u.bytes) }
     },
     crear: (d) => db.query(
-      `INSERT INTO documentos (id, titular, titulo, tipo, tamano, clase, estado) VALUES ($1, $2, $3, $4, $5, 'temporal', 'pendiente')`,
-      [d.id, d.titular, d.titulo, d.tipo, d.tamano]),
+      `INSERT INTO documentos (id, titular, titulo, titulo_norm, tipo, tamano, clase, estado) VALUES ($1, $2, $3, $4, $5, $6, 'temporal', 'pendiente')`,
+      [d.id, d.titular, d.titulo, normalizarTitulo(d.titulo), d.tipo, d.tamano]),
     buscar: (id) => uno('SELECT * FROM documentos WHERE id = $1', [id]),
     confirmar: (id, sha256) => uno(`UPDATE documentos SET estado = 'cargado', sha256 = $2 WHERE id = $1 RETURNING *`, [id, sha256]),
     marcarAutenticado: (id, respuesta) => uno(
       'UPDATE documentos SET autenticado_en = now(), respuesta_centralizador = $2 WHERE id = $1 RETURNING *', [id, respuesta]),
     descartar: (id) => db.query('DELETE FROM documentos WHERE id = $1', [id]),
+    eliminar: (id) => uno(`UPDATE documentos SET estado = 'eliminado' WHERE id = $1 RETURNING *`, [id]),
+    // La Carpeta muestra Temporales Cargados o Sustituidos y Certificados Vigentes.
     listar: async (titular) => (await db.query(
-      `SELECT * FROM documentos WHERE titular = $1 AND estado = 'cargado' ORDER BY creado DESC`, [titular])).rows.map(aDocumento),
+      `SELECT * FROM documentos WHERE titular = $1
+         AND ((clase = 'temporal' AND estado IN ('cargado', 'sustituido')) OR (clase = 'certificado' AND estado = 'vigente'))
+       ORDER BY creado DESC`, [titular])).rows.map(aDocumento),
+    // Idempotente por (emisor, idExterno): un reenvío devuelve el documento que ya existe.
+    async crearCertificado(d) {
+      const { rows } = await db.query(
+        `INSERT INTO documentos (id, titular, titulo, titulo_norm, tipo, tamano, sha256, clase, estado, emisor, id_externo, motivo)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, 'certificado', $8, $9, $10, $11)
+         ON CONFLICT (emisor, id_externo) WHERE id_externo IS NOT NULL DO NOTHING RETURNING *`,
+        [d.id, d.titular, d.titulo, normalizarTitulo(d.titulo), d.tipo, d.tamano, d.sha256, d.estado, d.emisor, d.idExterno, d.motivo ?? null])
+      if (rows[0]) return { documento: aDocumento(rows[0]), existente: false }
+      return { documento: await uno('SELECT * FROM documentos WHERE emisor = $1 AND id_externo = $2', [d.emisor, d.idExterno]), existente: true }
+    },
+    marcarVerificado: (id) => uno(`UPDATE documentos SET estado = 'verificado' WHERE id = $1 AND estado = 'recibido' RETURNING *`, [id]),
+    rechazar: (id, motivo) => uno(`UPDATE documentos SET estado = 'rechazado', motivo = $2 WHERE id = $1 RETURNING *`, [id, motivo]),
+    // Vigente y, en la misma sentencia, el Temporal equivalente más antiguo del titular pasa a Sustituido.
+    async activarCertificado(id) {
+      const { rows: [f] } = await db.query(
+        `WITH cert AS (SELECT id, titular, titulo_norm FROM documentos WHERE id = $1 AND estado = 'verificado'),
+              eq AS (
+                SELECT d.id FROM documentos d, cert
+                WHERE d.titular = cert.titular AND d.clase = 'temporal' AND d.estado = 'cargado' AND d.titulo_norm = cert.titulo_norm
+                ORDER BY d.creado LIMIT 1 FOR UPDATE OF d),
+              sust AS (UPDATE documentos SET estado = 'sustituido', sustituido_por = $1 WHERE id IN (SELECT id FROM eq) RETURNING id),
+              vig AS (UPDATE documentos SET estado = 'vigente' WHERE id IN (SELECT id FROM cert) RETURNING *)
+         SELECT vig.*, (SELECT id FROM sust) AS sustituye_a FROM vig`, [id])
+      return f ? { documento: aDocumento(f), sustituyeA: f.sustituye_a ?? undefined } : null
+    },
   }
 }

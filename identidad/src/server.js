@@ -25,6 +25,7 @@ if (process.argv.includes('--migrar')) {
     usuarios: crearUsuarios(db),
     clientes: { portal: lista(env.PORTAL_REDIRECTS ?? 'http://localhost:4173/*,http://localhost:5173/*') },
     administradores: env.KC_AFILIACION_SECRETO ? { 'afiliacion-admin': env.KC_AFILIACION_SECRETO } : {},
+    servicios: env.KC_INTEROP_SECRETO ? { interoperabilidad: { secreto: env.KC_INTEROP_SECRETO, audiencia: 'custodia' } } : {},
     origenes: lista(env.ORIGENES ?? 'http://localhost:4173,http://localhost:5173'),
   })
   const puerto = Number(env.PORT ?? 8080)

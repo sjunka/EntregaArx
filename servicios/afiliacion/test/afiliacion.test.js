@@ -1,6 +1,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { cuentaInstitucional, validarRegistro, cedulaEnmascarada } from '../src/cuenta.js'
+import { readFile } from 'node:fs/promises'
+import Ajv from 'ajv'
+import addFormats from 'ajv-formats'
 import { crearApp, crearLimite } from '../src/app.js'
 
 const datos = { cedula: '9912345678', nombre: 'José Ángel', apellido: 'Muñoz Pérez', direccion: 'Calle 1', correoContacto: 'j@x.co', telefono: '3001234567', clave: 'clave-muy-segura' }
@@ -131,6 +134,22 @@ test('camino feliz: verifica, crea deshabilitado, registra solo lo mínimo y hab
   assert.deepEqual(r.llamadas, ['crear', 'habilitar'])
   assert.deepEqual(enviados, [{ id: '9912345678', nombre: 'José Ángel Muñoz Pérez', direccion: 'Calle 1', correo: 'jose.munoz.45678@carpetacolombia.co' }], 'el teléfono no viaja a GovCarpeta')
   assert.equal(r.creados[0].telefono, '3001234567', 'el teléfono queda en la cuenta')
+})
+
+test('al afiliar deja en la misma sentencia el evento ciudadano.afiliado con el contacto, que cumple el contrato', async () => {
+  const r = await registrar({ pasarela: libre })
+  const escritura = r.sql.filter(([q]) => q === 'WITH')
+  assert.equal(escritura.length, 1, 'ciudadano y bandeja se escriben juntos')
+  const [cedula, cuenta, json] = escritura[0][1]
+  assert.deepEqual([cedula, cuenta], ['9912345678', 'jose.munoz.45678@carpetacolombia.co'])
+  const evento = JSON.parse(json)
+  assert.deepEqual(Object.keys(evento).sort(), ['afiliadoEn', 'cedula', 'correoContacto', 'cuenta', 'telefono'])
+  assert.equal(evento.correoContacto, 'j@x.co')
+  assert.equal(evento.telefono, '3001234567')
+  const ajv = addFormats(new Ajv({ strict: true }), ['uuid', 'email', 'date-time'])
+  ajv.addKeyword('x-cloudevent')
+  const validar = ajv.compile(JSON.parse(await readFile(new URL('../../../contratos/eventos/ciudadano-afiliado.v1.schema.json', import.meta.url), 'utf8')))
+  assert.ok(validar(evento), JSON.stringify(validar.errors))
 })
 
 test('CORS solo para orígenes registrados', async () => {

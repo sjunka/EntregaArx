@@ -1,14 +1,16 @@
 openapi: 3.1.0
 info:
   title: Custodia documental (MS-04)
-  version: 0.3.0
+  version: 0.4.0
   description: >
     Documentos del ciudadano afiliado. Realiza HU-02 (RF-09.1, RNF-10, RNF-11) y HU-03
-    (RF-02.2, RF-02.3, RNF-24, RI-06) y HU-04 (RF-06.6, RF-02.5, RI-01, RNF-21): todas las rutas
+    (RF-02.2, RF-02.3, RNF-24, RI-06) y HU-04 (RF-06.6, RF-02.5, RI-01, RNF-21) y HU-05 (RF-03.2, RF-03.3): todas las rutas
     salvo /salud exigen un Bearer JWT del emisor OIDC con audiencia `custodia` y `azp: portal`;
     sin firma válida, de otro emisor, de otra audiencia o vencido responde 401. Cada ciudadano
     solo ve su Carpeta. El binario nunca pasa por este servicio: sube directo al almacén por una
     URL prefirmada de 5 minutos (RI-06) y la custodia solo recibe metadatos (cuerpos de 2 KB).
+    Las rutas `/interno/*` son de la interoperabilidad (MS-07): exigen un token de servicio
+    (client credentials, `azp: interoperabilidad`); un token de ciudadano recibe 403.
 servers:
   - url: http://localhost:8083
 security:
@@ -99,6 +101,90 @@ paths:
         '409': { $ref: '#/components/responses/Problema' }
         '502': { $ref: '#/components/responses/Problema' }
         '503': { $ref: '#/components/responses/Problema' }
+  /documentos/{id}:
+    delete:
+      operationId: eliminarDocumento
+      summary: Elimina un Temporal propio
+      description: >
+        Solo los Temporales se pueden eliminar (RF-02.10): quedan Eliminados, salen de la cuota y su
+        objeto se borra. Un Certificado se custodia a perpetuidad y sin alteración: responde 409.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Eliminado }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '409': { $ref: '#/components/responses/Problema' }
+  /interno/certificados:
+    post:
+      operationId: registrarCertificado
+      summary: Registra un Certificado recibido de una entidad (MS-07)
+      description: >
+        Idempotente por (emisor, idExterno): un reenvío devuelve el mismo documento con 200 y no lo
+        duplica. Con `firmaValida: false` el Certificado queda Rechazado y no se emite URL. Con firma
+        válida queda Recibido y devuelve la URL PUT de 5 minutos al bucket de certificados.
+        Un Certificado no consume cuota (RNF-24).
+      security: [{ servicio: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [emisor, idExterno, cedula, titulo, tipo, tamano, sha256, firmaValida]
+              properties:
+                emisor: { type: string, minLength: 1, maxLength: 80 }
+                idExterno: { type: string, minLength: 1, maxLength: 120 }
+                cedula: { type: string, pattern: '^[0-9]{6,10}$' }
+                titulo: { type: string, minLength: 1, maxLength: 120 }
+                tipo: { type: string, enum: [application/pdf, image/jpeg, image/png] }
+                tamano: { type: integer, minimum: 1, maximum: 10485760 }
+                sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+                firmaValida: { type: boolean }
+                motivo: { type: string, description: Por qué la firma no verificó }
+      responses:
+        '201':
+          description: Registrado como Recibido (con URL) o como Rechazado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegistroCertificado' }
+        '200':
+          description: Reenvío idempotente del mismo (emisor, idExterno)
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/RegistroCertificado' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+  /interno/certificados/{id}/verificacion:
+    post:
+      operationId: verificarCertificado
+      summary: Verifica el objeto subido y deja el Certificado Vigente
+      description: >
+        Compara tamaño, tipo y SHA-256 con lo declarado. Coinciden: Recibido, Verificado, Vigente,
+        y el Temporal equivalente del mismo titular (mismo título normalizado, el más antiguo
+        Cargado) pasa a Sustituido enlazado al Certificado. No coinciden: Rechazado y se borra el
+        objeto. Si el archivo aún no llegó responde 409 y sigue Recibido. `cambio` es verdadero
+        solo la primera vez que queda Vigente, para que el evento se publique una vez.
+      security: [{ servicio: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Estado resultante
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [documento, cambio]
+                properties:
+                  documento: { $ref: '#/components/schemas/Documento' }
+                  cambio: { type: boolean }
+                  sustituyeA: { type: string, format: uuid }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '404': { $ref: '#/components/responses/Problema' }
+        '409': { $ref: '#/components/responses/Problema' }
   /cuota:
     get:
       operationId: consultarCuota
@@ -128,6 +214,7 @@ paths:
 components:
   securitySchemes:
     bearer: { type: http, scheme: bearer, bearerFormat: JWT }
+    servicio: { type: http, scheme: bearer, bearerFormat: JWT, description: Token client credentials de la interoperabilidad }
   schemas:
     Documento:
       type: object
@@ -135,8 +222,18 @@ components:
       properties:
         id: { type: string, format: uuid }
         titulo: { type: string }
-        clase: { type: string, enum: [temporal] }
-        estado: { type: string, enum: [cargado] }
+        clase: { type: string, enum: [temporal, certificado] }
+        estado:
+          type: string
+          description: >
+            Temporal: cargado, sustituido, eliminado. Certificado: recibido, verificado, vigente,
+            rechazado, retirado. La Carpeta del titular solo muestra Temporales cargado o sustituido
+            y Certificados vigente.
+          enum: [cargado, sustituido, eliminado, recibido, verificado, vigente, rechazado, retirado]
+        emisor: { type: string, description: Entidad que firmó el Certificado }
+        sustituidoPor: { type: string, format: uuid, description: Certificado que reemplazó a este Temporal }
+        motivo: { type: string, description: Por qué quedó Rechazado el Certificado; solo en las rutas internas }
+        titular: { type: string, description: Cédula del titular; solo en las rutas internas }
         tipo: { type: string, enum: [application/pdf, image/jpeg, image/png] }
         tamano: { type: integer }
         sha256: { type: string, description: Huella del archivo calculada al confirmar la carga }
@@ -148,6 +245,13 @@ components:
             fecha: { type: string, format: date-time }
             respuesta: { type: string, description: 'Texto del centralizador: un sello suyo, no un certificado (B-03)' }
         creado: { type: string, format: date-time }
+    RegistroCertificado:
+      type: object
+      required: [documento, existente]
+      properties:
+        documento: { $ref: '#/components/schemas/Documento' }
+        existente: { type: boolean }
+        urlCarga: { type: string, format: uri, description: Solo si el Certificado está Recibido }
     Cuota:
       type: object
       required: [documentos, bytes]

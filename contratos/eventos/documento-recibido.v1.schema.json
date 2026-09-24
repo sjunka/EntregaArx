@@ -1,0 +1,25 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mcs.example/contratos/eventos/documento-recibido.v1.schema.json",
+  "title": "Documento recibido (data de un CloudEvent 1.0)",
+  "description": "MS-07 publica este hecho cuando un Certificado queda Vigente en la Carpeta del ciudadano (HU-05). MS-09 lo consume para avisar. Sin contenido del documento ni datos de contacto.",
+  "x-cloudevent": {
+    "type": "co.carpetasegura.documento.recibido",
+    "source": "/mcs/interoperabilidad",
+    "subject": "documento/{id}",
+    "tema": "mcs.documento.recibido",
+    "sujetoRegistro": "mcs.documento.recibido-value"
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "cedula", "clase", "titulo", "emisor", "recibidoEn"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid", "description": "Identificador del documento en la custodia" },
+    "cedula": { "type": "string", "pattern": "^[0-9]{6,10}$", "description": "Titular de la Carpeta" },
+    "clase": { "type": "string", "const": "certificado" },
+    "titulo": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "emisor": { "type": "string", "minLength": 1, "description": "Entidad que emitió y firmó el Certificado" },
+    "sustituyeA": { "type": "string", "format": "uuid", "description": "Temporal equivalente que pasó a Sustituido, si lo había" },
+    "recibidoEn": { "type": "string", "format": "date-time" }
+  }
+}

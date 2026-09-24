@@ -15,13 +15,15 @@ if (process.argv.includes('--migrar')) {
   console.log(JSON.stringify({ nivel: 'info', mensaje: 'migración de custodia aplicada' }))
   await db.end()
 } else {
+  const almacenDe = (bucket) => crearAlmacen({
+    endpoint: env.S3_ENDPOINT, endpointPublico: env.S3_ENDPOINT_PUBLICO, region: env.S3_REGION ?? 'auto',
+    bucket, accessKeyId: env.S3_ACCESS_KEY, secretAccessKey: env.S3_SECRET_KEY,
+  })
   // El JWKS se lee por la URL interna; el emisor esperado es el público, el que ve el navegador (ADR-0014).
   const app = crearApp({
     documentos: crearRepositorio(db),
-    almacen: crearAlmacen({
-      endpoint: env.S3_ENDPOINT, endpointPublico: env.S3_ENDPOINT_PUBLICO, region: env.S3_REGION ?? 'auto',
-      bucket: env.S3_BUCKET, accessKeyId: env.S3_ACCESS_KEY, secretAccessKey: env.S3_SECRET_KEY,
-    }),
+    almacen: almacenDe(env.S3_BUCKET),
+    almacenCertificados: almacenDe(env.S3_BUCKET_CERTIFICADOS),
     pasarela: crearPasarela({ url: env.PASARELA_URL }),
     verificar: crearVerificador({ issuer: env.OIDC_ISSUER, jwks: createRemoteJWKSet(new URL(env.OIDC_JWKS_URL)) }),
     origenes: (env.ORIGENES ?? '').split(',').filter(Boolean),

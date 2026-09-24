@@ -16,6 +16,7 @@ const VERIFICADOR = 'v'.repeat(43)
 const RETO = createHash('sha256').update(VERIFICADOR).digest('base64url')
 
 const SECRETO_ADMIN = 'secreto-de-afiliacion'
+const SECRETO_SERVICIO = 'secreto-de-interoperabilidad'
 
 // Doble en memoria del repositorio Postgres (src/usuarios.js), con el mismo contrato.
 function enMemoria() {
@@ -53,6 +54,7 @@ async function conEmisor(prueba) {
     usuarios,
     clientes: { portal: [`${REDIRECT}*`] },
     administradores: { 'afiliacion-admin': SECRETO_ADMIN },
+    servicios: { interoperabilidad: { secreto: SECRETO_SERVICIO, audiencia: 'custodia' } },
     origenes: ['http://localhost:4173'],
   })
   const srv = app.listen(0)
@@ -200,6 +202,26 @@ test('entradas raras responden como rechazo, no como falla del emisor', () => co
 
 test('la cuenta no distingue mayúsculas, como en Keycloak', () => conEmisor(async (base) => {
   assert.equal((await autorizar(base, { username: USUARIO.cuenta.toUpperCase() })).status, 302)
+}))
+
+test('el token de acceso del ciudadano sirve a la custodia y a notificaciones', () => conEmisor(async (base) => {
+  const code = new URL((await autorizar(base)).headers.get('location')).searchParams.get('code')
+  const { access_token } = await (await canjear(base, code)).json()
+  assert.deepEqual(decodeJwt(access_token).aud, ['custodia', 'notificaciones'])
+}))
+
+test('client_credentials de un servicio: token con su audiencia y sin identidad de ciudadano', () => conEmisor(async (base) => {
+  const pedir = (secreto, cliente = 'interoperabilidad') => fetch(`${base}${RUTA}/token`, {
+    method: 'POST', body: new URLSearchParams({ grant_type: 'client_credentials', client_id: cliente, client_secret: secreto }),
+  })
+  assert.equal((await pedir('otro')).status, 401)
+  assert.equal((await pedir(SECRETO_SERVICIO, 'desconocido')).status, 401)
+  const r = await pedir(SECRETO_SERVICIO)
+  assert.equal(r.status, 200)
+  const { payload } = await jwtVerify((await r.json()).access_token, createRemoteJWKSet(new URL(`${base}${RUTA}/certs`)), { issuer: EMISOR, audience: 'custodia' })
+  assert.equal(payload.azp, 'interoperabilidad')
+  assert.equal(payload.cedula, undefined)
+  assert.equal(payload.preferred_username, undefined)
 }))
 
 // Admin API: el mismo subconjunto del de Keycloak que usa Afiliación para crear cuentas (HU-01).

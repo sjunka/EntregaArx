@@ -1,0 +1,21 @@
+{
+  "name": "mcs-notificaciones",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@kafkajs/confluent-schema-registry": "^3.9.0",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "express": "^5.2.1",
+    "jose": "^6.2.12",
+    "kafkajs": "^2.2.4",
+    "mongodb": "^6.10.0",
+    "nodemailer": "^6.9.16"
+  },
+  "engines": { "node": ">=22" }
+}

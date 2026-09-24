@@ -30,8 +30,15 @@ Documento que sube el propio ciudadano. Consume cuota y el titular puede elimina
 _Avoid_: borrador, provisional
 
 **Certificado**:
-Documento que emite y firma una entidad. No consume cuota y se custodia a perpetuidad sin alteración. Estados: Recibido, Verificado, Vigente, Rechazado, Retirado.
+Documento que emite y firma una entidad. No consume cuota y se custodia a perpetuidad sin alteración. Estados: Recibido, Verificado, Vigente, Rechazado, Retirado. Solo entra a la Carpeta cuando queda Vigente; con firma inválida o archivo alterado queda Rechazado.
 _Avoid_: emitido, oficial, firmado
+
+**Emisor**:
+Entidad que emite y firma un Certificado, por ejemplo una universidad. El operador conoce la llave pública con la que firma.
+_Avoid_: proveedor, remitente
+
+**Sustituido**:
+Estado de un Temporal cuando llega el Certificado equivalente: mismo titular y mismo título, sin tildes ni mayúsculas. Sale de la cuota y queda enlazado al Certificado.
 
 **Autenticado**:
 Marca de un Temporal que GovCarpeta ya autenticó. Es una constancia, no un estado: el documento sigue Cargado y sigue siendo Temporal.

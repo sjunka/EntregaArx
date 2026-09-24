@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BadgeCheck, FilePlus2, FileText, FolderOpen } from 'lucide-react'
+import { BadgeCheck, FilePlus2, FileText, FolderOpen, ShieldCheck } from 'lucide-react'
 import { autenticar, cuota as pedirCuota, listar } from './api.js'
 import Aviso from './Aviso.jsx'
 import Estado from './Estado.jsx'
@@ -50,7 +50,7 @@ export default function Carpeta({ nombre, alVencer }) {
       {cuota && (
         <p className="text-ink-2 mb-4" data-testid="cuota">
           Te quedan {cuota.documentos.maximo - cuota.documentos.usados} de {cuota.documentos.maximo} documentos
-          y {mb(cuota.bytes.maximo - cuota.bytes.usados)} MB de {mb(cuota.bytes.maximo)} MB.
+          y {mb(cuota.bytes.maximo - cuota.bytes.usados)} MB de {mb(cuota.bytes.maximo)} MB. Los certificados no cuentan.
         </p>
       )}
       {error && <Aviso tipo="peligro" titulo="No pudimos abrir tu carpeta">{error}</Aviso>}
@@ -61,7 +61,7 @@ export default function Carpeta({ nombre, alVencer }) {
           <p className="mt-2 mb-0">Todavía no tienes documentos.</p>
         </div>
       )}
-      {docs?.length > 0 && (
+      {docs?.some((d) => d.clase === 'temporal' && d.estado === 'cargado') && (
         <p className="text-ink-2 mb-3" id="ayuda-autenticar">
           Puedes pedir a GovCarpeta que autentique un documento temporal. Le enviamos un enlace que vence en 15 minutos; el archivo no sale de tu carpeta.
         </p>
@@ -69,14 +69,19 @@ export default function Carpeta({ nombre, alVencer }) {
       {docs?.length > 0 && (
         <ul className="list-none p-0 grid gap-3">
           {docs.map((d) => (
-            <li key={d.id} className="flex items-start gap-3 bg-surface border border-border rounded-lg p-4">
-              <FileText className="text-ink-2 mt-0.5" size={24} strokeWidth={1.75} aria-hidden="true" />
+            <li key={d.id} id={`doc-${d.id}`} className="flex items-start gap-3 bg-surface border border-border rounded-lg p-4">
+              {d.clase === 'certificado'
+                ? <ShieldCheck className="text-success mt-0.5" size={24} strokeWidth={1.75} aria-hidden="true" />
+                : <FileText className="text-ink-2 mt-0.5" size={24} strokeWidth={1.75} aria-hidden="true" />}
               <div className="flex-1">
                 <h2 className="text-base font-semibold m-0">{d.titulo}</h2>
-                <p className="text-sm text-ink-2 my-0.5">Subido por ti · {fecha(d.creado)} · {tamano(d.tamano)}</p>
-                <Estado documento={d} />
+                <p className="text-sm text-ink-2 my-0.5">
+                  {d.clase === 'certificado' ? `Recibido de ${d.emisor}` : 'Subido por ti'} · {fecha(d.creado)} · {tamano(d.tamano)}
+                </p>
+                <Estado documento={d} certificado={docs.find((x) => x.id === d.sustituidoPor)} />
+                {d.clase === 'certificado' && <p className="text-sm text-ink-2 mt-1 mb-0">Se custodia sin alteración y no se puede eliminar.</p>}
                 {fallo?.id === d.id && <Aviso tipo="peligro" titulo="GovCarpeta no autenticó el documento">{fallo.mensaje}</Aviso>}
-                {!d.autenticacion && (
+                {d.clase === 'temporal' && d.estado === 'cargado' && !d.autenticacion && (
                   <div className="mt-3">
                     <button
                       type="button" className="btn-secundario disabled:opacity-70 disabled:cursor-progress" disabled={enviando !== null}
