@@ -56,3 +56,5 @@ export async function subir({ titulo, archivo }, alAvanzar) {
   alAvanzar('verificando')
   return conSesion(`/documentos/${id}/confirmacion`, { method: 'POST' })
 }
+
+export const autenticar = (id) => conSesion(`/documentos/${id}/autenticacion`, { method: 'POST' })

@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
   title: Custodia documental (MS-04)
-  version: 0.2.0
+  version: 0.3.0
   description: >
     Documentos del ciudadano afiliado. Realiza HU-02 (RF-09.1, RNF-10, RNF-11) y HU-03
-    (RF-02.2, RF-02.3, RNF-24, RI-06): todas las rutas
+    (RF-02.2, RF-02.3, RNF-24, RI-06) y HU-04 (RF-06.6, RF-02.5, RI-01, RNF-21): todas las rutas
     salvo /salud exigen un Bearer JWT del emisor OIDC con audiencia `custodia` y `azp: portal`;
     sin firma válida, de otro emisor, de otra audiencia o vencido responde 401. Cada ciudadano
     solo ve su Carpeta. El binario nunca pasa por este servicio: sube directo al almacén por una
@@ -77,6 +77,28 @@ paths:
         '401': { $ref: '#/components/responses/Problema' }
         '403': { $ref: '#/components/responses/Problema' }
         '422': { $ref: '#/components/responses/Problema' }
+  /documentos/{id}/autenticacion:
+    post:
+      operationId: autenticarDocumento
+      summary: Pide a GovCarpeta autenticar un Temporal Cargado
+      description: >
+        Solo el titular puede pedirlo; otro usuario, o un documento inexistente, recibe 403.
+        A GovCarpeta viaja una URL de lectura de 15 minutos, nunca el contenido (RI-01). Autenticado
+        es una marca, no un estado: el documento sigue Cargado, sigue siendo Temporal y sigue
+        consumiendo cuota. Pedirlo de nuevo devuelve la constancia ya guardada.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Documento con la constancia de GovCarpeta
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Documento' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '409': { $ref: '#/components/responses/Problema' }
+        '502': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
   /cuota:
     get:
       operationId: consultarCuota
@@ -118,6 +140,13 @@ components:
         tipo: { type: string, enum: [application/pdf, image/jpeg, image/png] }
         tamano: { type: integer }
         sha256: { type: string, description: Huella del archivo calculada al confirmar la carga }
+        autenticacion:
+          type: object
+          description: Constancia de GovCarpeta; ausente mientras el Temporal no esté Autenticado
+          required: [fecha, respuesta]
+          properties:
+            fecha: { type: string, format: date-time }
+            respuesta: { type: string, description: 'Texto del centralizador: un sello suyo, no un certificado (B-03)' }
         creado: { type: string, format: date-time }
     Cuota:
       type: object

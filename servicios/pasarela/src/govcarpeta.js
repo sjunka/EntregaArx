@@ -72,5 +72,11 @@ export function crearCliente({ base, escritura = false, fetch = globalThis.fetch
       if (status !== 201) throw new Rechazo(status, texto)
       return texto
     },
+    async autenticar(documento) {
+      if (!escritura) throw new EscrituraDeshabilitada()
+      const { status, texto } = await llamar('PUT', '/apis/authenticateDocument', documento)
+      if (status !== 200) throw new Rechazo(status, texto)
+      return texto
+    },
   }
 }

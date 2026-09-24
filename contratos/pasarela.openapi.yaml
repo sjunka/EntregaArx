@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Pasarela del centralizador (MS-08)
-  version: 0.2.0
+  version: 0.3.0
   description: >
     Capa anticorrupción sobre GovCarpeta: timeout de 8 s, reintento solo en lecturas y circuit
     breaker. Nunca acepta contenido documental (RI-01, RD-15, RNF-21: cuerpos de 2 KB como máximo).
@@ -55,6 +55,40 @@ paths:
                 type: object
                 properties:
                   registrado: { type: boolean }
+        '400': { $ref: '#/components/responses/Problema' }
+        '413': { $ref: '#/components/responses/Problema' }
+        '502': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
+  /centralizador/documentos/autenticacion:
+    put:
+      operationId: autenticarDocumento
+      summary: Pide a GovCarpeta autenticar un documento por su URL prefirmada (authenticateDocument)
+      description: >
+        Solo viajan la cédula, la URL de lectura y el título (RI-01, RNF-21): nunca el contenido.
+        La URL debe ser https (compose la relaja para MinIO local). Escribe en GovCarpeta, así que
+        con el real exige GOVCARPETA_ESCRITURA=1.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [idCiudadano, url, titulo]
+              properties:
+                idCiudadano: { type: string, pattern: '^[0-9]{6,10}$' }
+                url: { type: string, format: uri, pattern: '^https://' }
+                titulo: { type: string, minLength: 1, maxLength: 120 }
+      responses:
+        '200':
+          description: Respuesta del centralizador
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [autenticado, respuesta]
+                properties:
+                  autenticado: { type: boolean }
+                  respuesta: { type: string }
         '400': { $ref: '#/components/responses/Problema' }
         '413': { $ref: '#/components/responses/Problema' }
         '502': { $ref: '#/components/responses/Problema' }

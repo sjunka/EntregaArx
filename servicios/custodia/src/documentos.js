@@ -2,6 +2,7 @@
 const aDocumento = (f) => f && ({
   id: f.id, titular: f.titular, titulo: f.titulo, clase: f.clase, estado: f.estado, tipo: f.tipo, tamano: Number(f.tamano),
   sha256: f.sha256, creado: f.creado,
+  autenticacion: f.autenticado_en ? { fecha: f.autenticado_en, respuesta: f.respuesta_centralizador } : null,
 })
 
 // Una carga pendiente reserva cuota solo mientras la URL prefirmada puede seguir viva (5 min, con holgura).
@@ -20,6 +21,9 @@ export async function migrar(db) {
   await db.query('ALTER TABLE documentos ADD COLUMN IF NOT EXISTS tipo text')
   await db.query('ALTER TABLE documentos ADD COLUMN IF NOT EXISTS tamano bigint')
   await db.query('ALTER TABLE documentos ADD COLUMN IF NOT EXISTS sha256 text')
+  // HU-04: Autenticado es una marca del Temporal, no un estado.
+  await db.query('ALTER TABLE documentos ADD COLUMN IF NOT EXISTS autenticado_en timestamptz')
+  await db.query('ALTER TABLE documentos ADD COLUMN IF NOT EXISTS respuesta_centralizador text')
   await db.query('ALTER TABLE documentos DROP CONSTRAINT IF EXISTS documentos_estado')
   await db.query("ALTER TABLE documentos ADD CONSTRAINT documentos_estado CHECK (estado IN ('pendiente', 'cargado'))")
   await db.query('CREATE INDEX IF NOT EXISTS documentos_titular ON documentos (titular)')
@@ -39,6 +43,8 @@ export function crearRepositorio(db) {
       [d.id, d.titular, d.titulo, d.tipo, d.tamano]),
     buscar: (id) => uno('SELECT * FROM documentos WHERE id = $1', [id]),
     confirmar: (id, sha256) => uno(`UPDATE documentos SET estado = 'cargado', sha256 = $2 WHERE id = $1 RETURNING *`, [id, sha256]),
+    marcarAutenticado: (id, respuesta) => uno(
+      'UPDATE documentos SET autenticado_en = now(), respuesta_centralizador = $2 WHERE id = $1 RETURNING *', [id, respuesta]),
     descartar: (id) => db.query('DELETE FROM documentos WHERE id = $1', [id]),
     listar: async (titular) => (await db.query(
       `SELECT * FROM documentos WHERE titular = $1 AND estado = 'cargado' ORDER BY creado DESC`, [titular])).rows.map(aDocumento),

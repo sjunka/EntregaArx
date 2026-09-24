@@ -9,6 +9,8 @@ const app = crearApp({
   // Al GovCarpeta real solo se escribe con permiso explícito; el stub local siempre acepta escrituras.
   cliente: crearCliente({ base, escritura: new URL(base).host !== new URL(REAL).host || env.GOVCARPETA_ESCRITURA === '1' }),
   operador: { id: env.OPERADOR_ID, nombre: env.OPERADOR_NOMBRE ?? 'Mi Carpeta Segura' },
+  // ponytail: solo compose lo apaga, porque MinIO local no tiene TLS.
+  soloHttps: env.URL_SOLO_HTTPS !== 'false',
 })
 const puerto = Number(env.PORT ?? 8080)
 app.listen(puerto, () => console.log(JSON.stringify({ nivel: 'info', mensaje: 'pasarela', puerto, govcarpeta: base })))

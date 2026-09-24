@@ -6,8 +6,18 @@ const problema = (res, status, title, detail) =>
 
 const CEDULA = /^[0-9]{6,10}$/
 
+// RI-01: la pasarela transporta URL, nunca el documento. En la nube solo https; compose lo relaja para MinIO.
+export function urlValida(url, { soloHttps = true } = {}) {
+  try {
+    const u = new URL(url)
+    return u.protocol === 'https:' || (!soloHttps && u.protocol === 'http:')
+  } catch {
+    return false
+  }
+}
+
 // RI-01 y RNF-21: la pasarela transporta datos de afiliación y URL, nunca el documento.
-export function crearApp({ cliente, operador }) {
+export function crearApp({ cliente, operador, soloHttps = true }) {
   const app = express()
   app.use(express.json({ limit: '2kb' }))
 
@@ -27,6 +37,17 @@ export function crearApp({ cliente, operador }) {
         operatorId: operador.id, operatorName: operador.nombre,
       })
       res.status(201).json({ registrado: true })
+    } catch (e) { next(e) }
+  })
+
+  app.put('/centralizador/documentos/autenticacion', async (req, res, next) => {
+    const { idCiudadano, url, titulo } = req.body ?? {}
+    if (!CEDULA.test(idCiudadano ?? '') || !urlValida(url, { soloHttps }) || typeof titulo !== 'string' || !titulo.trim() || titulo.length > 120) {
+      return problema(res, 400, 'Solicitud inválida', 'Se exige idCiudadano, una URL https y un título')
+    }
+    try {
+      const respuesta = await cliente.autenticar({ idCitizen: Number(idCiudadano), UrlDocument: url, documentTitle: titulo })
+      res.json({ autenticado: true, respuesta })
     } catch (e) { next(e) }
   })
 

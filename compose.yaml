@@ -80,6 +80,8 @@ services:
       GOVCARPETA_ESCRITURA: ${GOVCARPETA_ESCRITURA:-0}
       OPERADOR_ID: ${OPERADOR_ID:-mcs-local}
       OPERADOR_NOMBRE: Mi Carpeta Segura
+      # MinIO local no tiene TLS; en la nube la pasarela exige https.
+      URL_SOLO_HTTPS: "false"
     ports: ["8084:8080"]
 
   migrar-afiliacion:
@@ -120,8 +122,10 @@ services:
       migrar-custodia: { condition: service_completed_successfully }
       identidad: { condition: service_healthy }
       bucket: { condition: service_completed_successfully }
+      pasarela: { condition: service_healthy }
     environment:
       DATABASE_URL: postgres://postgres:${PG_CLAVE}@postgres/custodia
+      PASARELA_URL: http://pasarela:8080
       # iss que ve el navegador; las llaves se leen por la red interna.
       OIDC_ISSUER: http://localhost:8081/realms/carpeta
       OIDC_JWKS_URL: http://identidad:8080/realms/carpeta/protocol/openid-connect/certs

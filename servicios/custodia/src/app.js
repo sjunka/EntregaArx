@@ -1,5 +1,6 @@
 import express from 'express'
 import { randomUUID } from 'node:crypto'
+import { ErrorPasarela } from './pasarela.js'
 
 export const TIPOS = ['application/pdf', 'image/jpeg', 'image/png']
 export const MAX_ARCHIVO = 10 * 1024 * 1024
@@ -11,7 +12,7 @@ const problema = (res, status, title, detail) =>
 const log = (nivel, mensaje, extra = {}) => console.log(JSON.stringify({ nivel, mensaje, ...extra }))
 
 const aDocumento = (d) => ({
-  id: d.id, titulo: d.titulo, clase: d.clase, estado: d.estado, tipo: d.tipo, tamano: d.tamano, sha256: d.sha256 ?? undefined, creado: d.creado,
+  id: d.id, titulo: d.titulo, clase: d.clase, estado: d.estado, tipo: d.tipo, tamano: d.tamano, sha256: d.sha256 ?? undefined, autenticacion: d.autenticacion ?? undefined, creado: d.creado,
 })
 
 const mb = (b) => Math.floor(b / 1048576)
@@ -26,8 +27,8 @@ export function validarSolicitud({ titulo, tipo, tamano } = {}) {
 }
 
 // dependencias: documentos (repositorio, src/documentos.js), verificar(token) → claims,
-// almacen (urlCarga, cabecera, sha256, borrar).
-export function crearApp({ documentos, verificar, almacen, origenes = [] }) {
+// almacen (urlCarga, urlLectura, cabecera, sha256, borrar), pasarela (autenticar).
+export function crearApp({ documentos, verificar, almacen, pasarela, origenes = [] }) {
   const app = express()
   app.use((req, res, next) => {
     const o = req.headers.origin
@@ -105,6 +106,26 @@ export function crearApp({ documentos, verificar, almacen, origenes = [] }) {
           : 'No recibimos el archivo. Vuelve a subirlo.')
       }
       res.json(aDocumento(await documentos.confirmar(d.id, await almacen.sha256(clave))))
+    } catch (e) { next(e) }
+  })
+
+  app.post('/documentos/:id/autenticacion', async (req, res, next) => {
+    try {
+      const d = await propio(req, res)
+      if (!d) return
+      if (d.estado !== 'cargado') return problema(res, 409, 'El documento aún no está cargado', 'Termina de subir el archivo antes de autenticarlo.')
+      if (d.autenticacion) return res.json(aDocumento(d))
+      // RI-01: a GovCarpeta viaja una URL de lectura de 15 minutos, nunca el contenido.
+      const url = await almacen.urlLectura(`${d.titular}/${d.id}`)
+      let r
+      try {
+        r = await pasarela.autenticar({ idCiudadano: d.titular, url, titulo: d.titulo })
+      } catch (e) {
+        log('warn', 'autenticación no completada', { documento: d.id, detalle: e.message })
+        if (e instanceof ErrorPasarela && e.status !== 503) return problema(res, 502, 'GovCarpeta no autenticó el documento', e.message)
+        return problema(res, 503, 'GovCarpeta no responde', 'No pudimos contactar a GovCarpeta. Tu documento sigue guardado; intenta de nuevo en unos minutos.')
+      }
+      res.json(aDocumento(await documentos.marcarAutenticado(d.id, r.respuesta)))
     } catch (e) { next(e) }
   })
 

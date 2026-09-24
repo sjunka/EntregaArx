@@ -1,5 +1,5 @@
 // Doble local de GovCarpeta con las respuestas del real (códigos + prosa), para que compose y e2e
-// nunca escriban en el centralizador. Solo validateCitizen y registerCitizen; crece con cada HU.
+// nunca escriban en el centralizador. validateCitizen, registerCitizen y authenticateDocument; crece con cada HU.
 import { createServer } from 'node:http'
 
 // 1000000001 ya está afiliado a otro operador, para el escenario alterno de HU-01.
@@ -23,6 +23,19 @@ createServer((req, res) => {
       if (afiliados.has(id)) return responder(res, 501, `El ciudadano ${id} ya se encuentra registrado`)
       afiliados.set(id, c.operatorName)
       responder(res, 201, `Ciudadano ${id} registrado`)
+    })
+    return
+  }
+  if (req.method === 'PUT' && req.url === '/apis/authenticateDocument') {
+    let cuerpo = ''
+    req.on('data', (c) => { cuerpo += c })
+    req.on('end', () => {
+      let d
+      try { d = JSON.parse(cuerpo) } catch { return responder(res, 400, 'JSON inválido') }
+      // Como el real: recibe la URL del documento, no el binario, y responde en prosa.
+      if (!d.idCitizen || !d.UrlDocument || !d.documentTitle) return responder(res, 400, 'Faltan idCitizen, UrlDocument o documentTitle')
+      if (!afiliados.has(String(d.idCitizen))) return responder(res, 501, `El ciudadano ${d.idCitizen} no se encuentra registrado`)
+      responder(res, 200, `Documento ${d.documentTitle} autenticado para el ciudadano ${d.idCitizen}`)
     })
     return
   }

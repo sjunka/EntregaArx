@@ -3,6 +3,7 @@ import { createRemoteJWKSet } from 'jose'
 import { crearApp } from './app.js'
 import { crearVerificador } from './auth.js'
 import { crearAlmacen } from './almacen.js'
+import { crearPasarela } from './pasarela.js'
 import { crearRepositorio, migrar } from './documentos.js'
 
 const env = process.env
@@ -21,6 +22,7 @@ if (process.argv.includes('--migrar')) {
       endpoint: env.S3_ENDPOINT, endpointPublico: env.S3_ENDPOINT_PUBLICO, region: env.S3_REGION ?? 'auto',
       bucket: env.S3_BUCKET, accessKeyId: env.S3_ACCESS_KEY, secretAccessKey: env.S3_SECRET_KEY,
     }),
+    pasarela: crearPasarela({ url: env.PASARELA_URL }),
     verificar: crearVerificador({ issuer: env.OIDC_ISSUER, jwks: createRemoteJWKSet(new URL(env.OIDC_JWKS_URL)) }),
     origenes: (env.ORIGENES ?? '').split(',').filter(Boolean),
   })

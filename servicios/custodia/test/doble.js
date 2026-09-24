@@ -20,9 +20,10 @@ export function repositorioEnMemoria() {
       const v = [...filas.values()].filter((d) => d.titular === titular && d.clase === 'temporal' && d.estado === 'cargado')
       return { documentos: v.length, bytes: v.reduce((a, d) => a + d.tamano, 0) }
     },
-    crear: async (d) => { filas.set(d.id, { clase: 'temporal', estado: 'pendiente', sha256: null, autenticado: null, creado: new Date(), ...d }) },
+    crear: async (d) => { filas.set(d.id, { clase: 'temporal', estado: 'pendiente', sha256: null, autenticacion: null, creado: new Date(), ...d }) },
     buscar: async (id) => filas.get(id) ?? null,
     confirmar: async (id, sha256) => Object.assign(filas.get(id), { estado: 'cargado', sha256 }),
+    marcarAutenticado: async (id, respuesta) => Object.assign(filas.get(id), { autenticacion: { fecha: new Date(), respuesta } }),
     descartar: async (id) => { filas.delete(id) },
     listar: async (titular) => [...filas.values()].filter((d) => d.titular === titular && d.estado === 'cargado'),
   }
@@ -31,9 +32,10 @@ export function repositorioEnMemoria() {
 // Almacén falso: guarda lo que el "navegador" subió por la URL prefirmada.
 export function almacenFalso() {
   const objetos = new Map()
-  const llamadas = { urlCarga: [], borrar: [] }
+  const llamadas = { urlCarga: [], urlLectura: [], borrar: [] }
   return {
     objetos, llamadas,
+    urlLectura: async (clave) => { llamadas.urlLectura.push(clave); return `https://almacen.test/${clave}?firma=2` },
     urlCarga: async (clave, tipo) => { llamadas.urlCarga.push([clave, tipo]); return `http://almacen.test/${clave}?firma=1` },
     cabecera: async (clave) => objetos.get(clave)?.cabecera ?? null,
     sha256: async (clave) => objetos.get(clave)?.sha256 ?? 'sin-objeto',
@@ -42,8 +44,13 @@ export function almacenFalso() {
   }
 }
 
-export async function conServicio(prueba, { documentos = repositorioEnMemoria(), almacen = almacenFalso(), ...resto } = {}) {
-  const app = crearApp({ documentos, almacen, verificar: crearVerificador({ issuer: EMISOR, jwks }), ...resto })
+export function pasarelaFalsa(respuesta = 'Documento autenticado') {
+  const enviados = []
+  return { enviados, autenticar: async (d) => { enviados.push(d); return { autenticado: true, respuesta } } }
+}
+
+export async function conServicio(prueba, { documentos = repositorioEnMemoria(), almacen = almacenFalso(), pasarela = pasarelaFalsa(), ...resto } = {}) {
+  const app = crearApp({ documentos, almacen, pasarela, verificar: crearVerificador({ issuer: EMISOR, jwks }), ...resto })
   const srv = app.listen(0)
   const base = `http://127.0.0.1:${srv.address().port}`
   const pedir = async (ruta, { metodo = 'GET', cuerpo, cedula, cabeceras } = {}) => {
@@ -54,7 +61,7 @@ export async function conServicio(prueba, { documentos = repositorioEnMemoria(),
     })
     return { status: r.status, tipo: r.headers.get('content-type'), cuerpo: await r.json().catch(() => null) }
   }
-  try { await prueba({ pedir, documentos, almacen, base }) } finally { srv.close() }
+  try { await prueba({ pedir, documentos, almacen, pasarela, base }) } finally { srv.close() }
 }
 
 export const nuevoId = randomUUID

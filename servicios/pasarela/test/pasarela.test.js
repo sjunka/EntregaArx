@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { leerAfiliacion, crearBreaker, crearCliente, Indisponible, EscrituraDeshabilitada } from '../src/govcarpeta.js'
+import { leerAfiliacion, crearBreaker, crearCliente, Indisponible, EscrituraDeshabilitada, Rechazo } from '../src/govcarpeta.js'
 import { crearApp } from '../src/app.js'
 
 test('204 significa libre; 200 extrae el operador aunque haya espacio final', () => {
@@ -50,8 +50,8 @@ test('sin permiso de escritura no se envía nada a GovCarpeta', async () => {
   assert.equal(llamadas, 0)
 })
 
-async function pedir(cliente, metodo, ruta, cuerpo) {
-  const app = crearApp({ cliente, operador: { id: 'op-1', nombre: 'Mi Carpeta Segura' } })
+async function pedir(cliente, metodo, ruta, cuerpo, opciones = {}) {
+  const app = crearApp({ cliente, operador: { id: 'op-1', nombre: 'Mi Carpeta Segura' }, ...opciones })
   const srv = app.listen(0)
   try {
     const r = await fetch(`http://localhost:${srv.address().port}${ruta}`, {
@@ -98,4 +98,56 @@ test('JSON malformado: 400 en problem+json', async () => {
     assert.equal(r.status, 400)
     assert.match(r.headers.get('content-type'), /problem\+json/)
   } finally { srv.close() }
+})
+
+// HU-04 · authenticateDocument: viaja la URL prefirmada, nunca el documento (RI-01, RNF-21).
+const AUTENTICAR = { idCiudadano: '9912345678', url: 'https://almacen.example/mcs/9912345678/d1?X-Amz-Signature=abc', titulo: 'Diploma' }
+
+test('autenticar traduce la solicitud al contrato de GovCarpeta y devuelve su respuesta', async () => {
+  const enviados = []
+  const cliente = { autenticar: async (d) => { enviados.push(d); return 'Documento autenticado' } }
+  const r = await pedir(cliente, 'PUT', '/centralizador/documentos/autenticacion', AUTENTICAR)
+  assert.equal(r.status, 200)
+  assert.deepEqual(r.cuerpo, { autenticado: true, respuesta: 'Documento autenticado' })
+  assert.deepEqual(enviados, [{ idCitizen: 9912345678, UrlDocument: AUTENTICAR.url, documentTitle: 'Diploma' }])
+})
+
+test('autenticar rechaza URL que no sea https, título vacío o cédula inválida', async () => {
+  const cliente = { autenticar: async () => assert.fail('no debe llamar a GovCarpeta') }
+  for (const malo of [{ url: 'http://almacen.example/x' }, { url: 'no-es-url' }, { url: 'data:application/pdf;base64,AAAA' }, { titulo: '' }, { idCiudadano: '12a' }]) {
+    const r = await pedir(cliente, 'PUT', '/centralizador/documentos/autenticacion', { ...AUTENTICAR, ...malo })
+    assert.equal(r.status, 400, JSON.stringify(malo))
+    assert.match(r.tipo, /problem\+json/)
+  }
+})
+
+test('autenticar acepta http solo si la pasarela lo permite (MinIO local)', async () => {
+  const cliente = { autenticar: async () => 'ok' }
+  const r = await pedir(cliente, 'PUT', '/centralizador/documentos/autenticacion', { ...AUTENTICAR, url: 'http://localhost:9000/x?X-Amz-Signature=1' }, { soloHttps: false })
+  assert.equal(r.status, 200)
+})
+
+test('autenticar con contenido adjunto: 413', async () => {
+  const r = await pedir({}, 'PUT', '/centralizador/documentos/autenticacion', { ...AUTENTICAR, contenido: 'A'.repeat(4000) })
+  assert.equal(r.status, 413)
+})
+
+test('autenticar traduce los fallos de GovCarpeta a 502 y 503', async () => {
+  const rechazo = await pedir({ autenticar: async () => { throw new Rechazo(501, 'no') } }, 'PUT', '/centralizador/documentos/autenticacion', AUTENTICAR)
+  assert.equal(rechazo.status, 502)
+  const bloqueado = await pedir({ autenticar: async () => { throw new EscrituraDeshabilitada() } }, 'PUT', '/centralizador/documentos/autenticacion', AUTENTICAR)
+  assert.equal(bloqueado.status, 503)
+})
+
+test('el cliente autentica con PUT y sin permiso de escritura no envía nada', async () => {
+  const llamadas = []
+  const fetch = async (url, init) => { llamadas.push([url, init.method, init.body]); return new Response('Documento autenticado', { status: 200 }) }
+  const sin = crearCliente({ base: 'http://gov', escritura: false, fetch })
+  await assert.rejects(sin.autenticar({ idCitizen: 1 }), EscrituraDeshabilitada)
+  assert.equal(llamadas.length, 0)
+  const con = crearCliente({ base: 'http://gov', escritura: true, fetch })
+  assert.equal(await con.autenticar({ idCitizen: 9912345678, UrlDocument: 'https://x', documentTitle: 'D' }), 'Documento autenticado')
+  assert.deepEqual(llamadas, [['http://gov/apis/authenticateDocument', 'PUT', JSON.stringify({ idCitizen: 9912345678, UrlDocument: 'https://x', documentTitle: 'D' })]])
+  const malo = crearCliente({ base: 'http://gov', escritura: true, fetch: async () => new Response('no', { status: 501 }) })
+  await assert.rejects(malo.autenticar({}), Rechazo)
 })
