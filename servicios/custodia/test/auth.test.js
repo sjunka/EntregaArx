@@ -18,12 +18,12 @@ const firmar = ({ privateKey = llave.privateKey, iss = EMISOR, aud = 'custodia',
   new SignJWT({ azp: 'portal', preferred_username: 'a@carpetacolombia.co', cedula: CEDULA, ...claims })
     .setProtectedHeader({ alg: 'RS256', kid: 'k1' }).setIssuer(iss).setAudience(aud).setIssuedAt().setExpirationTime(exp).sign(privateKey)
 
-const FILAS = [{ id: '11111111-1111-1111-1111-111111111111', titulo: 'Diploma', creado: new Date('2026-01-01') }]
+const FILAS = [{ id: '11111111-1111-1111-1111-111111111111', titulo: 'Diploma', clase: 'temporal', estado: 'cargado', tipo: 'application/pdf', tamano: 10, creado: new Date('2026-01-01') }]
 
 async function pedir(cabeceras) {
   const consultas = []
   const app = crearApp({
-    db: { query: async (sql, args) => { consultas.push(args); return { rows: FILAS } } },
+    documentos: { listar: async (titular) => { consultas.push([titular]); return FILAS } },
     verificar: crearVerificador({ issuer: EMISOR, jwks: llave.jwks }),
   })
   const srv = app.listen(0)

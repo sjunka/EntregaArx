@@ -4,6 +4,7 @@ import { sesion } from './sesion.js'
 import Tema from './Tema.jsx'
 import Registro from './Registro.jsx'
 import Carpeta from './Carpeta.jsx'
+import Subir from './Subir.jsx'
 
 // Una sola promesa: StrictMode corre el efecto dos veces y el código de ingreso solo se canjea una vez.
 const inicial = new URLSearchParams(window.location.search).has('code')
@@ -34,6 +35,7 @@ export default function App() {
 
   let contenido
   if (usuario === undefined) contenido = <p className="text-ink-2" role="status">Abriendo tu carpeta…</p>
+  else if (usuario && hash === 'subir') contenido = <Subir alVencer={alVencer} />
   else if (usuario) contenido = <Carpeta nombre={usuario.profile.given_name} alVencer={alVencer} />
   else if (hash === 'registro') contenido = <Registro />
   else contenido = <Bienvenida fallo={fallo} vencida={vencida} />

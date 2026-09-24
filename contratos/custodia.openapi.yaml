@@ -1,12 +1,14 @@
 openapi: 3.1.0
 info:
   title: Custodia documental (MS-04)
-  version: 0.1.0
+  version: 0.2.0
   description: >
-    Documentos del ciudadano afiliado. Realiza HU-02 (RF-09.1, RNF-10, RNF-11): todas las rutas
+    Documentos del ciudadano afiliado. Realiza HU-02 (RF-09.1, RNF-10, RNF-11) y HU-03
+    (RF-02.2, RF-02.3, RNF-24, RI-06): todas las rutas
     salvo /salud exigen un Bearer JWT del emisor OIDC con audiencia `custodia` y `azp: portal`;
     sin firma válida, de otro emisor, de otra audiencia o vencido responde 401. Cada ciudadano
-    solo ve su Carpeta.
+    solo ve su Carpeta. El binario nunca pasa por este servicio: sube directo al almacén por una
+    URL prefirmada de 5 minutos (RI-06) y la custodia solo recibe metadatos (cuerpos de 2 KB).
 servers:
   - url: http://localhost:8083
 security:
@@ -15,7 +17,7 @@ paths:
   /documentos:
     get:
       operationId: listarDocumentos
-      summary: Lista los documentos de la Carpeta del titular
+      summary: Lista los documentos Cargados de la Carpeta del titular
       responses:
         '200':
           description: Documentos del titular, del más reciente al más antiguo
@@ -24,6 +26,67 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/Documento' }
+        '401': { $ref: '#/components/responses/Problema' }
+    post:
+      operationId: registrarDocumento
+      summary: Registra un Temporal pendiente y entrega la URL PUT prefirmada de 5 minutos
+      description: >
+        Valida título, formato (PDF, JPG o PNG), tamaño (10 MB) y cuota (20 Temporales y 200 MB)
+        antes de emitir la URL. No hay clave por documento: el objeto se llama `{cédula}/{id}`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [titulo, tipo, tamano]
+              properties:
+                titulo: { type: string, minLength: 1, maxLength: 120 }
+                tipo: { type: string, enum: [application/pdf, image/jpeg, image/png] }
+                tamano: { type: integer, minimum: 1, maximum: 10485760, description: Bytes }
+      responses:
+        '201':
+          description: Pendiente de carga
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, urlCarga]
+                properties:
+                  id: { type: string, format: uuid }
+                  urlCarga: { type: string, format: uri }
+        '401': { $ref: '#/components/responses/Problema' }
+        '413': { $ref: '#/components/responses/Problema' }
+        '415': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+  /documentos/{id}/confirmacion:
+    post:
+      operationId: confirmarCarga
+      summary: Verifica el objeto subido y deja el documento Cargado
+      description: >
+        Compara tamaño y tipo con lo declarado y calcula el SHA-256 del objeto. Si no coinciden
+        borra el objeto y responde 422. Es idempotente: confirmar un Cargado lo devuelve igual.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Documento Cargado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Documento' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+  /cuota:
+    get:
+      operationId: consultarCuota
+      summary: Cuota de Temporales del titular
+      responses:
+        '200':
+          description: Uso y límites
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Cuota' }
         '401': { $ref: '#/components/responses/Problema' }
   /salud:
     get:
@@ -46,11 +109,28 @@ components:
   schemas:
     Documento:
       type: object
-      required: [id, titulo, creado]
+      required: [id, titulo, clase, estado, tipo, tamano, creado]
       properties:
         id: { type: string, format: uuid }
         titulo: { type: string }
+        clase: { type: string, enum: [temporal] }
+        estado: { type: string, enum: [cargado] }
+        tipo: { type: string, enum: [application/pdf, image/jpeg, image/png] }
+        tamano: { type: integer }
+        sha256: { type: string, description: Huella del archivo calculada al confirmar la carga }
         creado: { type: string, format: date-time }
+    Cuota:
+      type: object
+      required: [documentos, bytes]
+      properties:
+        documentos:
+          type: object
+          required: [usados, maximo]
+          properties: { usados: { type: integer }, maximo: { type: integer, const: 20 } }
+        bytes:
+          type: object
+          required: [usados, maximo]
+          properties: { usados: { type: integer }, maximo: { type: integer, const: 209715200 } }
   responses:
     Problema:
       description: Error RFC 9457

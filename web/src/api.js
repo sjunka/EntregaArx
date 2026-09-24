@@ -33,7 +33,7 @@ async function conSesion(ruta, opciones = {}) {
   const usuario = await sesion.getUser()
   if (!usuario || usuario.expired) throw new ErrorServicio(401, 'Sesión vencida', 'Tu sesión venció. Ingresa de nuevo.')
   try {
-    return await pedir(`${CUSTODIA}${ruta}`, { ...opciones, headers: { authorization: `Bearer ${usuario.access_token}`, ...opciones.headers } })
+    return await pedir(`${CUSTODIA}${ruta}`, { ...opciones, headers: { authorization: `Bearer ${usuario.access_token}`, ...(opciones.body && { 'content-type': 'application/json' }), ...opciones.headers } })
   } catch (e) {
     if (e.status === 401) await sesion.removeUser()
     throw e
@@ -41,3 +41,18 @@ async function conSesion(ruta, opciones = {}) {
 }
 
 export const listar = () => conSesion('/documentos')
+export const cuota = () => conSesion('/cuota')
+
+// Tres pasos (HU-03): reservar en la custodia, subir el binario directo al almacén con la URL prefirmada
+// (RI-06, no pasa por el operador) y confirmar para que la custodia compruebe tamaño, tipo y huella.
+export async function subir({ titulo, archivo }, alAvanzar) {
+  alAvanzar('reservando')
+  const { id, urlCarga } = await conSesion('/documentos', {
+    method: 'POST', body: JSON.stringify({ titulo, tipo: archivo.type, tamano: archivo.size }),
+  })
+  alAvanzar('subiendo')
+  const put = await fetch(urlCarga, { method: 'PUT', headers: { 'content-type': archivo.type }, body: archivo }).catch(() => null)
+  if (!put?.ok) throw new ErrorServicio(0, 'No se pudo subir el archivo', 'La carga se interrumpió. Intenta de nuevo.')
+  alAvanzar('verificando')
+  return conSesion(`/documentos/${id}/confirmacion`, { method: 'POST' })
+}

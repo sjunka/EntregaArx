@@ -1,5 +1,5 @@
 # Mi Carpeta Segura en local: docker compose up -d --build
-# SPA 4173 · emisor OIDC 8081 · afiliación 8082 · custodia 8083 · pasarela 8084 · GovCarpeta simulado 8090
+# SPA 4173 · emisor OIDC 8081 · afiliación 8082 · custodia 8083 · pasarela 8084 · MinIO 9000 (consola 9001) · GovCarpeta simulado 8090
 name: mcs
 
 x-migracion: &migracion
@@ -18,6 +18,31 @@ services:
       test: pg_isready -U postgres
       interval: 5s
       retries: 20
+
+  # Almacén de objetos: el navegador sube y baja los binarios directo, por URL prefirmada (RI-06).
+  minio:
+    image: quay.io/minio/minio:latest
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:?copia .env.example a .env}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?copia .env.example a .env}
+    ports: ["9000:9000", "9001:9001"]
+    volumes: [miniodata:/data]
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      retries: 20
+
+  bucket:
+    image: quay.io/minio/mc:latest
+    restart: "no"
+    depends_on: { minio: { condition: service_healthy } }
+    entrypoint: >
+      sh -c "mc alias set local http://minio:9000 $$S3_ACCESS_KEY $$S3_SECRET_KEY &&
+             mc mb --ignore-existing local/mcs-documentos"
+    environment:
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
 
   migrar-identidad:
     <<: *migracion
@@ -94,12 +119,20 @@ services:
     depends_on:
       migrar-custodia: { condition: service_completed_successfully }
       identidad: { condition: service_healthy }
+      bucket: { condition: service_completed_successfully }
     environment:
       DATABASE_URL: postgres://postgres:${PG_CLAVE}@postgres/custodia
       # iss que ve el navegador; las llaves se leen por la red interna.
       OIDC_ISSUER: http://localhost:8081/realms/carpeta
       OIDC_JWKS_URL: http://identidad:8080/realms/carpeta/protocol/openid-connect/certs
       ORIGENES: http://localhost:4173,http://localhost:5173
+      S3_ENDPOINT: http://minio:9000
+      # Las URL prefirmadas se firman con el host que ve el navegador.
+      S3_ENDPOINT_PUBLICO: http://localhost:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: mcs-documentos
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
     ports: ["8083:8080"]
 
   web:
@@ -115,3 +148,4 @@ services:
 
 volumes:
   pgdata:
+  miniodata:
