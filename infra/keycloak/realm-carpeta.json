@@ -1,0 +1,95 @@
+{
+  "realm": "carpeta",
+  "enabled": true,
+  "sslRequired": "external",
+  "accessTokenLifespan": 300,
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "waitIncrementSeconds": 900,
+  "maxFailureWaitSeconds": 900,
+  "permanentLockout": false,
+  "attributes": { "userProfileEnabled": "true" },
+  "components": {
+    "org.keycloak.userprofile.UserProfileProvider": [{
+      "providerId": "declarative-user-profile",
+      "config": { "kc.user.profile.config": ["{\"attributes\":[{\"name\":\"username\"},{\"name\":\"email\"},{\"name\":\"firstName\",\"permissions\":{\"edit\":[\"admin\"]}},{\"name\":\"lastName\",\"permissions\":{\"edit\":[\"admin\"]}}],\"unmanagedAttributePolicy\":\"ENABLED\"}"] }
+    }]
+  },
+  "clients": [
+    {
+      "clientId": "portal",
+      "publicClient": true,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": ["${SPA_URL}/*"],
+      "webOrigins": ["${SPA_ORIGEN}"],
+      "attributes": { "pkce.code.challenge.method": "S256", "post.logout.redirect.uris": "${SPA_URL}/*" },
+      "protocolMappers": [
+        { "name": "audiencias-ciudadano", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper", "config": { "included.custom.audience": "custodia", "access.token.claim": "true" } },
+        { "name": "aud-notificaciones", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper", "config": { "included.custom.audience": "notificaciones", "access.token.claim": "true" } },
+        { "name": "aud-indice", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper", "config": { "included.custom.audience": "indice", "access.token.claim": "true" } },
+        { "name": "aud-auditoria", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper", "config": { "included.custom.audience": "auditoria", "access.token.claim": "true" } },
+        { "name": "aud-autorizaciones", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper", "config": { "included.custom.audience": "autorizaciones", "access.token.claim": "true" } },
+        { "name": "aud-interoperabilidad", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper", "config": { "included.custom.audience": "interoperabilidad", "access.token.claim": "true" } },
+        { "name": "cedula", "protocol": "openid-connect", "protocolMapper": "oidc-usermodel-attribute-mapper", "config": { "user.attribute": "cedula", "claim.name": "cedula", "jsonType.label": "String", "access.token.claim": "true" } },
+        { "name": "empresa", "protocol": "openid-connect", "protocolMapper": "oidc-usermodel-attribute-mapper", "config": { "user.attribute": "empresa", "claim.name": "empresa", "jsonType.label": "String", "access.token.claim": "true" } },
+        { "name": "analista", "protocol": "openid-connect", "protocolMapper": "oidc-usermodel-attribute-mapper", "config": { "user.attribute": "analista", "claim.name": "analista", "jsonType.label": "boolean", "access.token.claim": "true" } },
+        { "name": "audiencia-por-rol", "protocol": "openid-connect", "protocolMapper": "oidc-audience-resolve-mapper", "config": { "access.token.claim": "true" } }
+      ]
+    },
+    {
+      "clientId": "afiliacion-admin", "secret": "${KC_AFILIACION_SECRETO}", "publicClient": false, "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false, "directAccessGrantsEnabled": false
+    },
+    {
+      "clientId": "interoperabilidad", "secret": "${KC_INTEROP_SECRETO}", "publicClient": false, "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false, "directAccessGrantsEnabled": false,
+      "protocolMappers": [
+        { "name": "aud-custodia", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper", "config": { "included.custom.audience": "custodia", "access.token.claim": "true" } },
+        { "name": "aud-autorizaciones", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper", "config": { "included.custom.audience": "autorizaciones", "access.token.claim": "true" } },
+        { "name": "aud-afiliacion", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper", "config": { "included.custom.audience": "afiliacion", "access.token.claim": "true" } }
+      ]
+    },
+    {
+      "clientId": "custodia", "secret": "${KC_CUSTODIA_SECRETO}", "publicClient": false, "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false, "directAccessGrantsEnabled": false,
+      "protocolMappers": [{ "name": "aud-autorizaciones", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper", "config": { "included.custom.audience": "autorizaciones", "access.token.claim": "true" } }]
+    },
+    {
+      "clientId": "premium", "secret": "${KC_PREMIUM_SECRETO}", "publicClient": false, "serviceAccountsEnabled": true,
+      "standardFlowEnabled": false, "directAccessGrantsEnabled": false,
+      "protocolMappers": [{ "name": "aud-autorizaciones", "protocol": "openid-connect", "protocolMapper": "oidc-audience-mapper", "config": { "included.custom.audience": "autorizaciones", "access.token.claim": "true" } }]
+    },
+    { "clientId": "analitica", "bearerOnly": true }
+  ],
+  "roles": { "client": { "premium": [{ "name": "usuario" }], "analitica": [{ "name": "usuario" }] } },
+  "users": [
+    {
+      "username": "service-account-afiliacion-admin", "enabled": true, "serviceAccountClientId": "afiliacion-admin",
+      "clientRoles": { "realm-management": ["manage-users", "view-users", "query-users"] }
+    },
+    {
+      "username": "andres.perez.45678@carpetacolombia.co", "email": "andres.perez.45678@carpetacolombia.co", "emailVerified": true, "enabled": true,
+      "firstName": "Andrés", "lastName": "Pérez", "attributes": { "cedula": ["1012345678"] },
+      "credentials": [{ "type": "password", "value": "${USUARIO_DEMO_CLAVE}", "temporary": false }]
+    },
+    {
+      "username": "tramites@premium.carpetacolombia.co", "email": "tramites@premium.carpetacolombia.co", "emailVerified": true, "enabled": true,
+      "firstName": "Trámites", "lastName": "Premium", "attributes": { "empresa": ["tramites-premium"] },
+      "clientRoles": { "premium": ["usuario"] },
+      "credentials": [{ "type": "password", "value": "${USUARIO_DEMO_CLAVE}", "temporary": false }]
+    },
+    {
+      "username": "servicios@basico.carpetacolombia.co", "email": "servicios@basico.carpetacolombia.co", "emailVerified": true, "enabled": true,
+      "firstName": "Servicios", "lastName": "Básicos", "attributes": { "empresa": ["servicios-basicos"] },
+      "clientRoles": { "premium": ["usuario"] },
+      "credentials": [{ "type": "password", "value": "${USUARIO_DEMO_CLAVE}", "temporary": false }]
+    },
+    {
+      "username": "analista@mintic.carpetacolombia.co", "email": "analista@mintic.carpetacolombia.co", "emailVerified": true, "enabled": true,
+      "firstName": "Ana", "lastName": "Lista", "attributes": { "analista": ["true"] },
+      "clientRoles": { "analitica": ["usuario"] },
+      "credentials": [{ "type": "password", "value": "${USUARIO_DEMO_CLAVE}", "temporary": false }]
+    }
+  ]
+}
