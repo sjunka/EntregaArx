@@ -16,6 +16,7 @@ docker compose up -d --build
 | SPA | http://localhost:4173 |
 | Emisor OIDC simulado | http://localhost:8081/realms/carpeta |
 | Afiliación (MS-03) | http://localhost:8082 |
+| Custodia (MS-04) | http://localhost:8083 |
 | Pasarela de GovCarpeta (MS-08) | http://localhost:8084 |
 | GovCarpeta simulado | http://localhost:8090 |
 
@@ -54,3 +55,4 @@ Cambiar a Keycloak es solo cambiar variables de entorno:
 |---|---|
 | Esqueleto (#2) | RNF-11 autenticación con OIDC y PKCE (el segundo factor se activa en el objetivo, ADR-0006), RNF-17 WCAG 2.1 AA verificado con axe |
 | HU-01 Registro y afiliación | RF-01.1 registro con teléfono celular, RF-01.2 verificación de identidad (simulada, B-06), RF-01.3 afiliación única, RF-01.5 cuenta institucional, RF-06.2 registro en GovCarpeta, RD-15 y RNF-21 solo datos mínimos por la pasarela (2 KB), RI-03 nunca una segunda afiliación |
+| HU-02 Ingreso | RF-09.1 ingreso con OIDC Authorization Code y PKCE, RNF-11 bloqueo de la cuenta tras 5 intentos fallidos (15 min, sin revelar si existe) y verificación de firma, emisor y audiencia en la custodia (401), RNF-10 sin contraseñas en la SPA |

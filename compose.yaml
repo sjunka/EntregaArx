@@ -1,5 +1,5 @@
 # Mi Carpeta Segura en local: docker compose up -d --build
-# SPA 4173 · emisor OIDC 8081 · afiliación 8082 · pasarela 8084 · GovCarpeta simulado 8090
+# SPA 4173 · emisor OIDC 8081 · afiliación 8082 · custodia 8083 · pasarela 8084 · GovCarpeta simulado 8090
 name: mcs
 
 x-migracion: &migracion
@@ -81,12 +81,34 @@ services:
       ORIGENES: http://localhost:4173,http://localhost:5173
     ports: ["8082:8080"]
 
+  migrar-custodia:
+    <<: *migracion
+    build: ./servicios/custodia
+    command: ["node", "src/server.js", "--migrar"]
+    environment:
+      DATABASE_URL: postgres://postgres:${PG_CLAVE}@postgres/custodia
+
+  custodia:
+    build: ./servicios/custodia
+    restart: unless-stopped
+    depends_on:
+      migrar-custodia: { condition: service_completed_successfully }
+      identidad: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://postgres:${PG_CLAVE}@postgres/custodia
+      # iss que ve el navegador; las llaves se leen por la red interna.
+      OIDC_ISSUER: http://localhost:8081/realms/carpeta
+      OIDC_JWKS_URL: http://identidad:8080/realms/carpeta/protocol/openid-connect/certs
+      ORIGENES: http://localhost:4173,http://localhost:5173
+    ports: ["8083:8080"]
+
   web:
     build:
       context: ./web
       args:
         VITE_OIDC_AUTHORITY: http://localhost:8081/realms/carpeta
         VITE_MCS_AFILIACION: http://localhost:8082
+        VITE_MCS_CUSTODIA: http://localhost:8083
     restart: unless-stopped
     depends_on: { identidad: { condition: service_healthy } }
     ports: ["4173:80"]

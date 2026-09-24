@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
-import { FolderLock, FolderOpen, LogIn, LogOut, UserPlus } from 'lucide-react'
+import { useCallback, useEffect, useState } from 'react'
+import { FolderLock, LogIn, LogOut, UserPlus } from 'lucide-react'
 import { sesion } from './sesion.js'
 import Tema from './Tema.jsx'
 import Registro from './Registro.jsx'
+import Carpeta from './Carpeta.jsx'
 
 // Una sola promesa: StrictMode corre el efecto dos veces y el código de ingreso solo se canjea una vez.
 const inicial = new URLSearchParams(window.location.search).has('code')
@@ -24,6 +25,8 @@ export default function App() {
   const hash = useHash()
   const [usuario, setUsuario] = useState(undefined)
   const [fallo, setFallo] = useState(false)
+  const [vencida, setVencida] = useState(false)
+  const alVencer = useCallback(() => { setVencida(true); setUsuario(null) }, [])
 
   useEffect(() => {
     inicial.then((u) => setUsuario(u && !u.expired ? u : null)).catch(() => { setUsuario(null); setFallo(true) })
@@ -31,9 +34,9 @@ export default function App() {
 
   let contenido
   if (usuario === undefined) contenido = <p className="text-ink-2" role="status">Abriendo tu carpeta…</p>
-  else if (usuario) contenido = <Carpeta nombre={usuario.profile.given_name} />
+  else if (usuario) contenido = <Carpeta nombre={usuario.profile.given_name} alVencer={alVencer} />
   else if (hash === 'registro') contenido = <Registro />
-  else contenido = <Bienvenida fallo={fallo} />
+  else contenido = <Bienvenida fallo={fallo} vencida={vencida} />
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -77,12 +80,17 @@ export default function App() {
   )
 }
 
-function Bienvenida({ fallo }) {
+function Bienvenida({ fallo, vencida }) {
   return (
     <section aria-labelledby="t-inicio">
       {fallo && (
         <p role="alert" className="mb-6 p-4 rounded-md border border-danger bg-danger-bg text-ink font-semibold">
           No pudimos completar tu ingreso. Intenta ingresar de nuevo.
+        </p>
+      )}
+      {vencida && (
+        <p role="alert" className="mb-6 p-4 rounded-md border border-warning bg-warning-bg text-ink font-semibold">
+          Tu sesión venció. Ingresa de nuevo para ver tu carpeta.
         </p>
       )}
       <h1 id="t-inicio" className="text-[40px] leading-[48px] font-bold tracking-tight max-w-[18ch] mb-2">
@@ -93,19 +101,6 @@ function Bienvenida({ fallo }) {
       </p>
       <div className="flex flex-wrap gap-3 my-6">
         <a className="btn-primario" href="#registro">Crear mi carpeta</a>
-      </div>
-    </section>
-  )
-}
-
-function Carpeta({ nombre }) {
-  return (
-    <section aria-labelledby="t-carpeta" className="max-w-[840px]">
-      <h1 id="t-carpeta" className="text-[32px] leading-10 font-bold tracking-tight mb-2">Hola, {nombre}</h1>
-      <p className="text-lg text-ink-2 mb-6">Esta es tu carpeta. Aquí verás tus documentos y las solicitudes que te lleguen.</p>
-      <div className="bg-surface border border-border rounded-lg p-10 text-center">
-        <FolderOpen className="mx-auto text-ink-2" size={24} strokeWidth={1.75} aria-hidden="true" />
-        <p className="mt-2 mb-0">Todavía no tienes documentos.</p>
       </div>
     </section>
   )

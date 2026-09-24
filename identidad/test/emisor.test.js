@@ -20,6 +20,7 @@ const SECRETO_ADMIN = 'secreto-de-afiliacion'
 // Doble en memoria del repositorio Postgres (src/usuarios.js), con el mismo contrato.
 function enMemoria() {
   const filas = new Map()
+  const intentos = new Map()
   return {
     porCuenta: async (cuenta) => [...filas.values()].find((u) => u.cuenta === cuenta) ?? null,
     crear: async (u) => {
@@ -30,6 +31,16 @@ function enMemoria() {
     },
     habilitar: async (id, habilitado) => filas.has(id) && !!Object.assign(filas.get(id), { habilitado }),
     borrar: async (id) => filas.delete(id),
+    // Intentos por nombre de cuenta, exista o no, para no revelar qué cuentas hay.
+    bloqueo: async (cuenta) => { const b = intentos.get(cuenta)?.hasta; return b > Date.now() ? b : null },
+    fallo: async (cuenta, max, bloqueoMs) => {
+      const i = intentos.get(cuenta) ?? { n: 0 }
+      i.n += 1
+      if (i.n >= max) i.hasta = Date.now() + bloqueoMs
+      intentos.set(cuenta, i)
+      return i.hasta ?? null
+    },
+    exito: async (cuenta) => { intentos.delete(cuenta) },
   }
 }
 
@@ -116,6 +127,32 @@ test('clave errada no redirige', () => conEmisor(async (base) => {
   const r = await autorizar(base, { password: 'otra' })
   assert.equal(r.status, 401)
   assert.match(await r.text(), /no coinciden/)
+}))
+
+test('quinto intento fallido bloquea la cuenta, aun con la clave correcta, sin revelar si existe', () => conEmisor(async (base) => {
+  for (let i = 1; i <= 4; i++) {
+    const r = await autorizar(base, { password: 'otra' })
+    assert.equal(r.status, 401)
+    assert.match(await r.text(), /no coinciden/)
+  }
+  const quinto = await autorizar(base, { password: 'otra' })
+  assert.equal(quinto.status, 429)
+  assert.match(await quinto.text(), /bloqueamos el ingreso/)
+  const correcta = await autorizar(base)
+  assert.equal(correcta.status, 429, 'la clave correcta tampoco entra mientras dure el bloqueo')
+  assert.equal(correcta.headers.get('location'), null)
+
+  // Una cuenta inexistente se bloquea igual: la respuesta no delata cuáles existen.
+  for (let i = 1; i <= 4; i++) assert.equal((await autorizar(base, { username: 'nadie@carpetacolombia.co', password: 'x' })).status, 401)
+  const fantasma = await autorizar(base, { username: 'nadie@carpetacolombia.co', password: 'x' })
+  assert.equal(fantasma.status, 429)
+  assert.match(await fantasma.text(), /bloqueamos el ingreso/)
+}))
+
+test('un ingreso correcto reinicia la cuenta de intentos', () => conEmisor(async (base) => {
+  for (let i = 0; i < 4; i++) await autorizar(base, { password: 'otra' })
+  assert.equal((await autorizar(base)).status, 302)
+  for (let i = 0; i < 4; i++) assert.equal((await autorizar(base, { password: 'otra' })).status, 401)
 }))
 
 test('redirect_uri no registrada no redirige', () => conEmisor(async (base) => {

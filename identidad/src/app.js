@@ -27,6 +27,8 @@ export async function crearLlave() {
 
 const VIDA_TOKEN = 300 // accessTokenLifespan del realm
 const VIDA_CODIGO = 60
+const MAX_INTENTOS = 5 // HU-02: al quinto fallo la cuenta se bloquea
+const BLOQUEO_MS = 15 * 60_000
 
 const sha256 = (s) => createHash('sha256').update(s).digest()
 const iguales = (a, b) => timingSafeEqual(sha256(a), sha256(b))
@@ -66,7 +68,7 @@ ${error ? `<p class="error" role="alert" id="error">${error}</p>` : ''}
 </form>`)
 }
 
-// usuarios: repositorio (src/usuarios.js) con porCuenta, crear, habilitar y borrar.
+// usuarios: repositorio (src/usuarios.js) con porCuenta, crear, habilitar, borrar y el conteo de intentos (bloqueo, fallo, exito).
 // clientes: { clientId: [redirects, admite * final] }; administradores: { clientId: secreto } para el Admin API.
 export function crearApp({ emisor, llave, usuarios, clientes, administradores = {}, origenes = [] }) {
   const app = express()
@@ -120,13 +122,18 @@ export function crearApp({ emisor, llave, usuarios, clientes, administradores = 
     const p = req.body ?? {}
     const motivo = invalida(p)
     if (motivo) return rechazo(res, motivo)
-    const cuenta = typeof p.username === 'string' ? p.username.trim().toLowerCase() : ''
+    // ponytail: un renglón por nombre probado (existan o no); purgar los vencidos si la tabla crece.
+    const cuenta = typeof p.username === 'string' ? p.username.trim().toLowerCase().slice(0, 254) : ''
+    const bloqueado = (r) => r.status(429).type('html').send(formulario(p, `Por seguridad bloqueamos el ingreso durante ${BLOQUEO_MS / 60_000} minutos tras varios intentos fallidos. Intenta de nuevo más tarde.`))
+    if (cuenta && await usuarios.bloqueo(cuenta)) return bloqueado(res)
     const u = cuenta ? await usuarios.porCuenta(cuenta) : null
     const clave = typeof p.password === 'string' ? p.password : ''
     const valida = await claveCorrecta(clave, u?.clave ?? SEÑUELO)
     if (!u || !u.habilitado || !valida) {
+      if (cuenta && await usuarios.fallo(cuenta, MAX_INTENTOS, BLOQUEO_MS)) return bloqueado(res)
       return res.status(401).type('html').send(formulario(p, 'La cuenta o la contraseña no coinciden. Revisa e intenta de nuevo.'))
     }
+    await usuarios.exito(cuenta)
     // ponytail: código sin estado (JWT de 60 s), reutilizable dentro de esa ventana; Keycloak real lo invalida al primer uso.
     const code = await firmar({ sub: u.cuenta, azp: p.client_id, redirect_uri: p.redirect_uri, reto: p.code_challenge, nonce: p.nonce }, 'codigo', VIDA_CODIGO)
     const destino = new URL(p.redirect_uri)
