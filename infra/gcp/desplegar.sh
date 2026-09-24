@@ -28,7 +28,11 @@ $TF apply -target=google_cloud_run_v2_job.migrar -target=google_cloud_run_v2_job
 for j in afiliacion autorizaciones premium custodia interoperabilidad; do
   gcloud run jobs execute "mcs-migrar-$j" --project "$P" --region "$R" --wait
 done
-sleep 60 # arranque de Kafka y Schema Registry en la VM
-gcloud run jobs execute mcs-esquemas --project "$P" --region "$R" --wait
+# Kafka y Schema Registry tardan en arrancar en la VM: se reintenta el registro hasta 10 veces.
+for i in $(seq 10); do
+  gcloud run jobs execute mcs-esquemas --project "$P" --region "$R" --wait && break
+  [ "$i" = 10 ] && exit 1
+  sleep 30
+done
 $TF apply
 $TF output urls
