@@ -26,6 +26,8 @@ write_files:
         confluentinc/cp-schema-registry:7.7.1
       Restart=always
 runcmd:
+  # COS descarta el tráfico entrante salvo SSH: se abren Kafka y Schema Registry (la firewall de GCP ya limita a la subred).
+  - iptables -w -A INPUT -p tcp -m multiport --dports 9092,8081 -j ACCEPT
   - mkdir -p /var/kafka && chown 1000:1000 /var/kafka
   - systemctl daemon-reload
   - systemctl start kafka.service schema-registry.service

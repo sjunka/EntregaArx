@@ -8,7 +8,7 @@ Sigue ADR-0015 y ADR-0014. Se despliega una sola vez, al final, en un proyecto n
 - Cloud Run: 10 servicios (`pasarela`, `afiliacion`, `autorizaciones`, `premium`, `custodia`, `interoperabilidad`, `notificaciones`, `indice`, `auditoria`, `analitica`) y Keycloak 26 con el realm `carpeta` (`infra/keycloak/realm-carpeta.json`).
 - Cloud SQL PostgreSQL 16 `db-f1-micro` con IP privada y una base por servicio (RD-11): `afiliacion`, `custodia`, `interoperabilidad`, `autorizaciones`, `premium`, `keycloak`.
 - MongoDB Atlas M0 para MS-09, MS-05, MS-02 y MS-10.
-- VM `e2-small` con Kafka KRaft y Schema Registry, sin IP pública.
+- VM `e2-small` con Kafka KRaft y Schema Registry. Tiene IP externa efímera solo para bajar imágenes de Docker Hub; el firewall solo admite la subred interna.
 - Dos buckets de GCS con llaves HMAC para las URL prefirmadas (RI-06).
 - Secret Manager con todos los secretos, generados por Terraform. Ninguno entra al repo.
 - Jobs de Cloud Run para las migraciones (RD-10) y el registro de esquemas.

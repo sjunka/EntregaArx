@@ -5,3 +5,4 @@ dist
 .terraform
 *.tfstate*
 *.tfvars
+.env.atlas

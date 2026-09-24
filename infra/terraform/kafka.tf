@@ -1,4 +1,5 @@
-# Kafka KRaft y Schema Registry en una sola VM e2-small (ADR-0015). Sin IP pública: solo la alcanza Cloud Run por la red.
+# Kafka KRaft y Schema Registry en una sola VM e2-small (ADR-0015). La IP externa solo sirve para bajar las imágenes de Docker Hub
+# (evita un Cloud NAT); ninguna regla de firewall admite tráfico entrante desde fuera de la subred.
 resource "google_compute_address" "kafka" {
   name         = "mcs-kafka"
   region       = var.region
@@ -19,6 +20,7 @@ resource "google_compute_instance" "kafka" {
   network_interface {
     subnetwork = google_compute_subnetwork.mcs.id
     network_ip = google_compute_address.kafka.address
+    access_config {}
   }
   metadata = {
     user-data = templatefile("${path.module}/kafka-cloud-init.yaml.tftpl", { ip = google_compute_address.kafka.address })

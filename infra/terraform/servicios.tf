@@ -176,8 +176,8 @@ resource "google_cloud_run_v2_service" "keycloak" {
 }
 
 resource "google_cloud_run_v2_service_iam_member" "publico" {
-  for_each = merge({ for k, v in google_cloud_run_v2_service.svc : k => v }, { keycloak = google_cloud_run_v2_service.keycloak })
-  name     = each.value.name
+  for_each = toset(concat(local.nombres, ["keycloak"]))
+  name     = each.key == "keycloak" ? google_cloud_run_v2_service.keycloak.name : google_cloud_run_v2_service.svc[each.key].name
   location = var.region
   role     = "roles/run.invoker"
   member   = "allUsers"
@@ -214,7 +214,7 @@ resource "google_cloud_run_v2_job" "migrar" {
       }
     }
   }
-  depends_on = [google_secret_manager_secret_version.s, google_sql_database.base, google_sql_user.mcs]
+  depends_on = [google_secret_manager_secret_version.s, google_sql_database.base, google_sql_user.mcs, google_project_iam_member.run]
 }
 
 # Registra los esquemas de contratos/eventos en el Schema Registry de la VM.
@@ -241,4 +241,5 @@ resource "google_cloud_run_v2_job" "esquemas" {
       }
     }
   }
+  depends_on = [google_project_iam_member.run]
 }

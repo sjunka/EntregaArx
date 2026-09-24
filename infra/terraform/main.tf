@@ -1,9 +1,10 @@
 # Despliegue único y económico (ADR-0015). `terraform destroy` lo elimina todo.
 locals {
-  apis     = ["run", "sqladmin", "compute", "secretmanager", "artifactregistry", "cloudbuild", "storage", "iam", "servicenetworking"]
-  bases    = ["afiliacion", "custodia", "interoperabilidad", "autorizaciones", "premium", "keycloak"] # RD-11: una por servicio
-  buckets  = { documentos = "${var.project_id}-documentos", certificados = "${var.project_id}-certificados" }
-  registro = "${var.region}-docker.pkg.dev/${var.project_id}/mcs"
+  aleatorios = ["kc_admin", "kc_afiliacion", "kc_interop", "kc_custodia", "kc_premium", "usuario_demo", "enlace", "activacion", "analitica_sal"]
+  apis       = ["run", "sqladmin", "compute", "secretmanager", "artifactregistry", "cloudbuild", "storage", "iam", "servicenetworking"]
+  bases      = ["afiliacion", "custodia", "interoperabilidad", "autorizaciones", "premium", "keycloak"] # RD-11: una por servicio
+  buckets    = { documentos = "${var.project_id}-documentos", certificados = "${var.project_id}-certificados" }
+  registro   = "${var.region}-docker.pkg.dev/${var.project_id}/mcs"
 }
 
 resource "google_project" "mcs" {
@@ -76,8 +77,13 @@ resource "random_password" "sql" {
   special = false
 }
 
+# Cloud SQL no deja reusar un nombre recién borrado durante días: el sufijo permite reintentar.
+resource "random_id" "sql" {
+  byte_length = 3
+}
+
 resource "google_sql_database_instance" "pg" {
-  name                = "mcs-pg"
+  name                = "mcs-pg-${random_id.sql.hex}"
   region              = var.region
   database_version    = "POSTGRES_16"
   deletion_protection = false
@@ -129,8 +135,8 @@ resource "google_service_account" "custodia_s3" {
 }
 
 resource "google_storage_bucket_iam_member" "custodia" {
-  for_each = google_storage_bucket.binarios
-  bucket   = each.value.name
+  for_each = local.buckets
+  bucket   = google_storage_bucket.binarios[each.key].name
   role     = "roles/storage.objectAdmin"
   member   = "serviceAccount:${google_service_account.custodia_s3.email}"
 }
@@ -141,14 +147,14 @@ resource "google_storage_hmac_key" "custodia" {
 
 # Secretos: se generan aquí, viven en Secret Manager y en el estado (que no se versiona).
 resource "random_password" "secreto" {
-  for_each = toset(["kc_admin", "kc_afiliacion", "kc_interop", "kc_custodia", "kc_premium", "usuario_demo", "enlace", "activacion", "analitica_sal"])
+  for_each = toset(local.aleatorios)
   length   = 40
   special  = false
 }
 
 locals {
   secretos = merge(
-    { for k, v in random_password.secreto : k => v.result },
+    { for k in local.aleatorios : k => random_password.secreto[k].result },
     {
       pg_clave   = random_password.sql.result
       s3_acceso  = google_storage_hmac_key.custodia.access_id
