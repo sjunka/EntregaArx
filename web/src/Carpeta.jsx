@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { BadgeCheck, Download, FilePlus2, FileText, FolderOpen, Search, ShieldCheck, Truck } from 'lucide-react'
-import { autenticar, buscar, cuota as pedirCuota, descargar, traslado as pedirTraslado } from './api.js'
+import { autenticar, buscar, cuota as pedirCuota, descargar, salida as pedirSalida, traslado as pedirTraslado } from './api.js'
 import Aviso from './Aviso.jsx'
 import Estado from './Estado.jsx'
 
@@ -19,6 +19,7 @@ export default function Carpeta({ nombre, alVencer }) {
   const [descargando, setDescargando] = useState(null)
   const [fallo, setFallo] = useState(null)
   const [traslado, setTraslado] = useState(null)
+  const [salida, setSalida] = useState(null)
   const [borrador, setBorrador] = useState(SIN_FILTROS)
   const [filtros, setFiltros] = useState(SIN_FILTROS)
   // El índice se actualiza por eventos, unos instantes después de la custodia: lo que el ciudadano acaba de hacer
@@ -60,6 +61,10 @@ export default function Carpeta({ nombre, alVencer }) {
     const cargarTraslado = () => pedirTraslado()
       .then((t) => vivo && setTraslado((previo) => (JSON.stringify(previo) === JSON.stringify(t) ? previo : t)))
       .catch((e) => e.status === 401 && vivo && alVencer())
+    // HU-13: con un traslado de salida en curso la carpeta es de solo lectura.
+    const cargarSalida = () => pedirSalida()
+      .then((t) => vivo && setSalida((previo) => (JSON.stringify(previo) === JSON.stringify(t) ? previo : t)))
+      .catch((e) => e.status === 401 && vivo && alVencer())
     const cargar = () => buscar(filtros)
       .then((lista) => {
         if (!vivo) return
@@ -70,7 +75,8 @@ export default function Carpeta({ nombre, alVencer }) {
       .catch((e) => vivo && (e.status === 401 ? alVencer() : setError(e.message)))
     cargar()
     cargarTraslado()
-    const ciclo = setInterval(() => { cargar(); cargarTraslado() }, 4000)
+    cargarSalida()
+    const ciclo = setInterval(() => { cargar(); cargarTraslado(); cargarSalida() }, 4000)
     return () => { vivo = false; clearInterval(ciclo) }
   }, [alVencer, filtros])
 
@@ -88,10 +94,17 @@ export default function Carpeta({ nombre, alVencer }) {
           <h1 id="t-carpeta" className="text-[32px] leading-10 font-bold tracking-tight mb-2">Hola, {nombre}</h1>
           <p className="text-lg text-ink-2 m-0">Esta es tu carpeta. Aquí verás tus documentos y las solicitudes que te lleguen.</p>
         </div>
-        <a className="btn-primario" href="#subir">
-          <FilePlus2 size={20} strokeWidth={1.75} aria-hidden="true" /> Subir documento
-        </a>
+        {salida?.estado !== 'en-curso' && (
+          <a className="btn-primario" href="#subir">
+            <FilePlus2 size={20} strokeWidth={1.75} aria-hidden="true" /> Subir documento
+          </a>
+        )}
       </div>
+      {salida?.estado === 'en-curso' && (
+        <Aviso tipo="info" titulo={`Estamos trasladando tu carpeta a ${salida.operador}`}>
+          Mientras el traslado termina tu carpeta está en solo lectura: puedes consultar y descargar tus documentos. <a className="underline" href="#traslado">Ver el traslado</a>.
+        </Aviso>
+      )}
       {traslado?.estado === 'en-curso' && (
         <section aria-labelledby="t-traslado" className="bg-info-bg border border-info rounded-lg p-4 mb-4">
           <h2 id="t-traslado" className="flex items-center gap-2 text-lg font-bold m-0"><Truck size={20} strokeWidth={1.75} aria-hidden="true" /> Estamos trasladando tu carpeta</h2>

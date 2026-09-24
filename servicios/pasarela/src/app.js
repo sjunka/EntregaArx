@@ -40,6 +40,19 @@ export function crearApp({ cliente, operador, soloHttps = true }) {
     } catch (e) { next(e) }
   })
 
+  // HU-13: baja del ciudadano al empezar un traslado de salida (unregisterCitizen) y directorio de operadores (getOperators).
+  app.delete('/centralizador/ciudadanos/:id', async (req, res, next) => {
+    if (!CEDULA.test(req.params.id)) return problema(res, 400, 'Identificación inválida')
+    try {
+      await cliente.desafiliar({ id: Number(req.params.id), operatorId: operador.id, operatorName: operador.nombre })
+      res.json({ desafiliado: true })
+    } catch (e) { next(e) }
+  })
+
+  app.get('/centralizador/operadores', async (_req, res, next) => {
+    try { res.json(await cliente.operadores()) } catch (e) { next(e) }
+  })
+
   app.put('/centralizador/documentos/autenticacion', async (req, res, next) => {
     const { idCiudadano, url, titulo } = req.body ?? {}
     if (!CEDULA.test(idCiudadano ?? '') || !urlValida(url, { soloHttps }) || typeof titulo !== 'string' || !titulo.trim() || titulo.length > 120) {

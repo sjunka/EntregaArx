@@ -72,6 +72,18 @@ export function crearCliente({ base, escritura = false, fetch = globalThis.fetch
       if (status !== 201) throw new Rechazo(status, texto)
       return texto
     },
+    // unregisterCitizen (HU-13): 200, 201 y 204 dejan libre al ciudadano. Es escritura: exige permiso explícito en el GovCarpeta real.
+    async desafiliar(ciudadano) {
+      if (!escritura) throw new EscrituraDeshabilitada()
+      const { status, texto } = await llamar('DELETE', '/apis/unregisterCitizen', ciudadano)
+      if (![200, 201, 204].includes(status)) throw new Rechazo(status, texto)
+    },
+    // getOperators (HU-13, lectura): solo los que publican transferAPIURL pueden recibir un traslado (B-16); los demás llevan null.
+    async operadores() {
+      const { status, texto } = await llamar('GET', '/apis/getOperators', null, 3)
+      if (status !== 200) throw new Rechazo(status, texto)
+      return JSON.parse(texto).map((o) => ({ id: o._id ?? o.OperatorId, nombre: o.operatorName ?? o.OperatorName, transferAPIURL: o.transferAPIURL?.trim() || null }))
+    },
     async autenticar(documento) {
       if (!escritura) throw new EscrituraDeshabilitada()
       const { status, texto } = await llamar('PUT', '/apis/authenticateDocument', documento)

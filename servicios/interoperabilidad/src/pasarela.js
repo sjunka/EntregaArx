@@ -6,5 +6,11 @@ export function crearPasarela({ url }) {
       if (!r.ok) throw new Error(`pasarela respondió ${r.status}`)
       return r.json()
     },
+    // HU-13: directorio de operadores (getOperators): [{ id, nombre, transferAPIURL | null }].
+    async operadores() {
+      const r = await fetch(`${url}/centralizador/operadores`, { signal: AbortSignal.timeout(15_000) })
+      if (!r.ok) throw new Error(`pasarela respondió ${r.status}`)
+      return r.json()
+    },
   }
 }

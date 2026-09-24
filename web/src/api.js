@@ -93,6 +93,12 @@ export const activar = ({ token, clave }) =>
 export const accesos = (filtros = {}) =>
   conSesion(`/accesos?${new URLSearchParams(Object.entries(filtros).filter(([, v]) => v))}`, {}, AUDITORIA)
 
+// Traslado de salida (MS-07, HU-13): operadores de GovCarpeta, inicio (con confirmación explícita en la pantalla) y avance (404: no hay).
+export const operadoresDestino = () => conSesion('/traslados/salida/operadores', {}, INTEROPERABILIDAD)
+export const iniciarSalida = (operadorId) =>
+  conSesion('/traslados/salida', { method: 'POST', body: JSON.stringify({ operadorId }) }, INTEROPERABILIDAD)
+export const salida = () => conSesion('/traslados/salida/actual', {}, INTEROPERABILIDAD).catch((e) => { if (e.status === 404) return null; throw e })
+
 export const preferencias = () => conSesion('/preferencias', {}, NOTIFICACIONES)
 export const guardarPreferencias = (canales) =>
   conSesion('/preferencias', { method: 'PUT', body: JSON.stringify({ canales }) }, NOTIFICACIONES)

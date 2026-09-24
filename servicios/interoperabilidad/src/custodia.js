@@ -43,6 +43,11 @@ export function crearCustodia({ url, token, timeoutMs = 30_000 }) {
     // HU-09: la custodia descarga el documento de la URL del origen, comprueba tamaño y SHA-256 y lo guarda. Idempotente por (operador, idExterno).
     recibirTraslado: (d) => llamar('/interno/traslados/documentos', d),
     // El traslado falló: se descarta lo que llegó de ese origen para ese titular. Idempotente.
+    // HU-13 · Traslado de salida. Congelar deja la Carpeta en solo lectura y devuelve { documentos: [{ id, titulo, clase, url }] } con una
+    // URL de lectura por documento (idempotente: repetirlo da URL nuevas). Reabrir si el destino rechazó; cerrar borra tras confirmar.
+    congelar: (cedula) => llamar(`/interno/salida/${cedula}/congelacion`),
+    reabrir: (cedula) => llamar(`/interno/salida/${cedula}/congelacion`, undefined, 'DELETE'),
+    cerrar: (cedula) => llamar(`/interno/salida/${cedula}`, undefined, 'DELETE'),
     descartarTraslado: ({ cedula, operador }) => llamar(`/interno/traslados/${cedula}?operador=${encodeURIComponent(operador)}`, undefined, 'DELETE'),
   }
 }

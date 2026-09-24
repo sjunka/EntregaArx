@@ -42,6 +42,8 @@ if (process.argv.includes('--migrar')) {
       url: env.AUTORIZACIONES_URL,
       token: crearProveedorToken({ url: env.OIDC_INTERNO_URL, clientId: 'custodia', secreto: env.KC_CUSTODIA_SECRETO }),
     }),
+    // HU-13: vida de las URL de lectura que recibe el operador destino de un Traslado de salida (24 horas por defecto).
+    vidaTraslado: Number(env.TRASLADO_URL_SEGUNDOS ?? 24 * 3600),
     verificar: crearVerificador({ issuer: env.OIDC_ISSUER, jwks: createRemoteJWKSet(new URL(env.OIDC_JWKS_URL)) }),
     origenes: (env.ORIGENES ?? '').split(',').filter(Boolean),
   })

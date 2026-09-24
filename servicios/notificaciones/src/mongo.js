@@ -12,6 +12,9 @@ export function crearRepos(db) {
       // Inserta con el correo como canal por defecto; si ya existe actualiza el contacto y respeta los canales elegidos.
       guardarContacto: ({ cedula, correo, telefono }) => contactos.updateOne(
         { _id: cedula }, { $set: { correo, telefono, actualizado: new Date() }, $setOnInsert: { canales: ['correo'] } }, { upsert: true }),
+      // HU-13: el ciudadano se trasladó a otro operador; su contacto y sus avisos se borran aquí (RD-11).
+      // ponytail: un grupo de consumidores nuevo (replay desde el inicio) puede recrear lo anterior al traslado; agregar una lápida con fecha si se reinicia el grupo.
+      borrar: async (cedula) => { await contactos.deleteOne({ _id: cedula }); await avisos.deleteMany({ cedula }) },
       guardarCanales: async (cedula, canales) => {
         const d = await contactos.findOneAndUpdate({ _id: cedula }, { $set: { canales, actualizado: new Date() } }, { returnDocument: 'after' })
         return d && { cedula: d._id, correo: d.correo, telefono: d.telefono, canales: d.canales }

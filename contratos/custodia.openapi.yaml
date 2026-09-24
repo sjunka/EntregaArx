@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Custodia documental (MS-04)
-  version: 0.8.0
+  version: 0.9.0
   description: >
     Documentos del ciudadano afiliado. Realiza HU-02 (RF-09.1, RNF-10, RNF-11) y HU-03
     (RF-02.2, RF-02.3, RNF-24, RI-06) y HU-04 (RF-06.6, RF-02.5, RI-01, RNF-21) y HU-05 (RF-03.2, RF-03.3) y HU-06 (RF-02.7, RNF-01) y HU-07 (RI-08) y HU-08 (RF-04.1) y HU-09 (RF-03.3, RF-03.5, RNF-22): todas las rutas
@@ -362,6 +362,75 @@ paths:
                   descartados: { type: integer }
         '401': { $ref: '#/components/responses/Problema' }
         '403': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+  /interno/salida/{cedula}/congelacion:
+    post:
+      operationId: congelarCarpeta
+      summary: Congela la Carpeta y entrega una URL de lectura por documento para el operador destino (HU-13)
+      description: >
+        Deja la Carpeta en solo lectura: subir, confirmar, autenticar y eliminar responden 409 y un Certificado nuevo también.
+        Devuelve una URL prefirmada de solo lectura por cada documento de la Carpeta (`TRASLADO_URL_SEGUNDOS`, 24 horas por
+        defecto): el destino nunca recibe credenciales del almacén (RI-06) y nada de esto llega a GovCarpeta (RI-01). No es un
+        acceso de tercero, no se audita. Idempotente: repetirlo da URL nuevas.
+      security: [{ servicio: [] }]
+      parameters:
+        - { name: cedula, in: path, required: true, schema: { type: string, pattern: '^[0-9]{6,10}$' } }
+      responses:
+        '200':
+          description: Carpeta congelada
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [documentos]
+                properties:
+                  documentos:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, titulo, clase, url]
+                      properties:
+                        id: { type: string, format: uuid }
+                        titulo: { type: string }
+                        clase: { type: string, enum: [temporal, certificado] }
+                        url: { type: string, format: uri }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+    delete:
+      operationId: reabrirCarpeta
+      summary: El destino rechazó el traslado; la Carpeta vuelve a lectura y escritura
+      security: [{ servicio: [] }]
+      parameters:
+        - { name: cedula, in: path, required: true, schema: { type: string, pattern: '^[0-9]{6,10}$' } }
+      responses:
+        '200': { description: Reabierta }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+  /interno/salida/{cedula}:
+    delete:
+      operationId: cerrarCarpeta
+      summary: El destino confirmó (req_status 1); borra los documentos y sus archivos (HU-13)
+      description: >
+        Solo con la Carpeta congelada por un traslado de salida: sin él, y con documentos, responde 409 y no borra nada.
+        No publica un evento por documento: MS-07 publica un solo `ciudadano.trasladado`. Idempotente.
+      security: [{ servicio: [] }]
+      parameters:
+        - { name: cedula, in: path, required: true, schema: { type: string, pattern: '^[0-9]{6,10}$' } }
+      responses:
+        '200':
+          description: Borrada
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [borrados]
+                properties:
+                  borrados: { type: integer }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '409': { $ref: '#/components/responses/Problema' }
         '422': { $ref: '#/components/responses/Problema' }
   /cuota:
     get:

@@ -27,7 +27,7 @@ export function crearLimite({ max = 5, ventanaMs = 3_600_000, ahora = Date.now }
 // registraduria (verificar), traslados ({ interno, publico } de rutasTraslados). confiarProxy: saltos de proxy de confianza para req.ip (0 si se publica directo).
 export function crearApp({
   db, pasarela, keycloak, registraduria = registraduriaSimulada, limite = crearLimite(), origenes = [],
-  operador = 'Mi Carpeta Segura', confiarProxy = 0, traslados,
+  operador = 'Mi Carpeta Segura', confiarProxy = 0, traslados, salida,
 }) {
   const app = express()
   app.set('trust proxy', confiarProxy)
@@ -44,6 +44,8 @@ export function crearApp({
     app.use('/interno/traslados', traslados.interno)
     app.use('/traslados', traslados.publico)
   }
+  // HU-13: traslado de salida (baja en GovCarpeta, reafiliación y cierre de la cuenta; solo MS-07).
+  if (salida) app.use('/interno/salida', salida)
 
   app.get('/salud', (_req, res) => res.json({ estado: 'ok' }))
 
@@ -103,10 +105,10 @@ export function crearApp({
     const evento = { cedula: d.cedula, cuenta, correoContacto: d.correoContacto, telefono: d.telefono, afiliadoEn: new Date().toISOString() }
     await db.query(
       `WITH c AS (
-         INSERT INTO ciudadanos (cedula, cuenta, estado) VALUES ($1, $2, 'afiliado')
-         ON CONFLICT (cedula) DO UPDATE SET cuenta = $2, estado = 'afiliado' RETURNING cedula)
+         INSERT INTO ciudadanos (cedula, cuenta, estado, direccion) VALUES ($1, $2, 'afiliado', $4)
+         ON CONFLICT (cedula) DO UPDATE SET cuenta = $2, estado = 'afiliado', direccion = $4 RETURNING cedula)
        INSERT INTO bandeja (nombre, clave, datos) SELECT 'ciudadano.afiliado', cedula, $3::jsonb FROM c`,
-      [d.cedula, cuenta, JSON.stringify(evento)])
+      [d.cedula, cuenta, JSON.stringify(evento), d.direccion.trim()])
     log('info', 'ciudadano afiliado', { cedula })
     res.status(201).json({ cedula: d.cedula, cuenta, estado: 'afiliado', identidad: 'simulada' })
   })

@@ -1,6 +1,6 @@
 // Doble local de GovCarpeta con las respuestas del real (códigos + prosa), para que compose y e2e
-// nunca escriban en el centralizador. validateCitizen, registerCitizen, authenticateDocument y unregisterCitizen (la baja que
-// hace el operador origen en un traslado, HU-09); crece con cada HU.
+// nunca escriban en el centralizador. validateCitizen, registerCitizen, authenticateDocument, unregisterCitizen (la baja que hace el
+// operador origen en un traslado, HU-09 y HU-13) y getOperators (HU-13); crece con cada HU.
 import { createServer } from 'node:http'
 
 // 1000000001 ya está afiliado a otro operador, para el escenario alterno de HU-01.
@@ -53,6 +53,14 @@ createServer((req, res) => {
       responder(res, 200, `Ciudadano ${id} dado de baja`)
     })
     return
+  }
+  // Directorio de operadores (HU-13). Como el real, solo algunos publican transferAPIURL (B-16). OPERADORES reemplaza la lista.
+  if (req.method === 'GET' && req.url === '/apis/getOperators') {
+    return responder(res, 200, JSON.stringify(process.env.OPERADORES ? JSON.parse(process.env.OPERADORES) : [
+      { _id: 'mcs-local', operatorName: 'Mi Carpeta Segura', transferAPIURL: 'http://interoperabilidad:8080/api/transferCitizen' },
+      { _id: 'operador-destino', operatorName: 'Operador Destino', transferAPIURL: 'http://operador-destino:8080/api/transferCitizen' },
+      { _id: 'operador-sin-traslado', operatorName: 'Operador Sin Traslado', transferAPIURL: '' },
+    ]))
   }
   if (req.url === '/salud') return responder(res, 200, 'ok')
   responder(res, 404)

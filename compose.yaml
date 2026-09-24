@@ -133,6 +133,18 @@ services:
     ports: ["8081:8080"]
 
   # Doble de GovCarpeta: compose nunca escribe en el real (B-06, GOVCARPETA_ESCRITURA).
+  # Otro operador simulado: recibe a un ciudadano que se traslada desde Mi Carpeta Segura (HU-13) y confirma con transferCitizenConfirm.
+  operador-destino:
+    build: ./infra/operador-destino
+    restart: unless-stopped
+    depends_on: { govcarpeta: { condition: service_healthy } }
+    environment:
+      OPERADOR: operador-destino
+      OPERADOR_NOMBRE: Operador Destino
+      GOVCARPETA_URL: http://govcarpeta:8080
+      ALMACEN_CONEXION: minio:9000
+    ports: ["8097:8080"]
+
   govcarpeta:
     build: ./infra/govcarpeta-stub
     restart: unless-stopped
@@ -324,7 +336,9 @@ services:
       AUTORIZACIONES_URL: http://autorizaciones:8080
       AFILIACION_URL: http://afiliacion:8080
       SPA_URL: http://localhost:4173
-      TRASLADO_HOSTS_INTERNOS: operador-origen
+      TRASLADO_HOSTS_INTERNOS: operador-origen,operador-destino
+      # HU-13: dirección con la que el operador destino alcanza nuestro transferCitizenConfirm (en la nube, la URL https pública).
+      URL_PUBLICA: http://interoperabilidad:8080
       OIDC_INTERNO_URL: http://identidad:8080/realms/carpeta
       KC_INTEROP_SECRETO: ${KC_INTEROP_SECRETO}
       # Directorio de entidades emisoras y su llave pública (id=urlJWKS;id=urlJWKS).

@@ -22,6 +22,9 @@ export function crearRepo(db) {
     }),
     autenticado: (d) => poner(d.id, { cedula: d.cedula, autenticadoEn: new Date(d.autenticadoEn) }),
     eliminado: (d) => poner(d.id, { cedula: d.cedula, estado: 'eliminado' }),
+    // HU-13: el ciudadano se trasladó a otro operador; sus documentos ya no se custodian aquí.
+    // ponytail: un grupo de consumidores nuevo (replay desde el inicio) puede reproyectar lo anterior al traslado; agregar una lápida con fecha si se reinicia el grupo.
+    trasladado: (d) => col.deleteMany({ cedula: d.cedula }),
     async recibido(d) {
       await poner(d.id, { cedula: d.cedula, clase: 'certificado', titulo: d.titulo, tituloNorm: normalizar(d.titulo), emisor: d.emisor, creado: new Date(d.recibidoEn) })
       if (d.sustituyeA) await poner(d.sustituyeA, { cedula: d.cedula, estado: 'sustituido', sustituidoPor: d.id })

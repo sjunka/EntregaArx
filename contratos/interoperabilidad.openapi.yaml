@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Interoperabilidad (MS-07)
-  version: 0.4.0
+  version: 0.5.0
   description: >
     Recibe los documentos que emiten las entidades (HU-05: RF-03.2, RF-03.3, RNF-05) y las peticiones de
     documentos de las entidades al ciudadano (HU-07: RF-04.3, RF-04.4, RI-08) y el envío del ciudadano a una entidad
@@ -270,6 +270,109 @@ paths:
               schema: { $ref: '#/components/schemas/TrasladoEstado' }
         '401': { $ref: '#/components/responses/Problema' }
         '404': { $ref: '#/components/responses/Problema' }
+  /traslados/salida/operadores:
+    get:
+      operationId: operadoresDeTraslado
+      summary: Operadores a los que el ciudadano puede trasladarse (HU-13)
+      description: >
+        Directorio de GovCarpeta (getOperators) sin este operador. `disponible` es falso si el operador no publica
+        `transferAPIURL` (B-16) o su dirección no es https pública. Bearer JWT con audiencia `interoperabilidad` y `azp: portal`.
+      security: [{ bearer: [] }]
+      responses:
+        '200':
+          description: Operadores
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [id, nombre, disponible]
+                  properties:
+                    id: { type: string }
+                    nombre: { type: string }
+                    disponible: { type: boolean }
+        '401': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
+  /traslados/salida:
+    post:
+      operationId: iniciarTrasladoDeSalida
+      summary: El ciudadano confirma su traslado a otro operador (HU-13)
+      description: >
+        Crea el traslado y responde 202: MS-07 lo orquesta con su estado en la base. Pasos: congela la Carpeta (solo lectura),
+        da de baja en GovCarpeta (unregisterCitizen), envía `transferCitizen` al operador destino con id, nombre, cuenta
+        institucional y las URL prefirmadas de cada documento (nunca contenido, RI-01, RD-15) y espera
+        `transferCitizenConfirm`. La cuenta y los documentos se borran solo tras `req_status: 1`. Destino sin `transferAPIURL`
+        o con dirección no permitida: 422 y el traslado no empieza. Un solo traslado activo por ciudadano (409).
+      security: [{ bearer: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [operadorId]
+              properties:
+                operadorId: { type: string, description: Id del operador destino en GovCarpeta }
+      responses:
+        '202':
+          description: Traslado iniciado
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrasladoDeSalida' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '409': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
+  /traslados/salida/actual:
+    get:
+      operationId: avanceDelTrasladoDeSalida
+      summary: El avance del último traslado de salida del ciudadano
+      security: [{ bearer: [] }]
+      responses:
+        '200':
+          description: Traslado del ciudadano
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrasladoDeSalida' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '404': { $ref: '#/components/responses/Problema' }
+  /api/transferCitizenConfirm/{token}:
+    post:
+      operationId: transferCitizenConfirm
+      summary: El operador destino confirma el traslado de un ciudadano que salió de aquí (HU-13)
+      description: >
+        La ruta es el `confirmAPI` que MS-07 entregó al destino; `token` (`{traslado}.{HMAC}`) hace que solo ese destino pueda
+        confirmar ese traslado. `req_status: 1`: todo llegó. MS-07 comprueba en GovCarpeta que el ciudadano ya figura en otro
+        operador (si no, 409) y agenda el cierre: primero se borran los documentos, luego la cuenta, y sale
+        `ciudadano.trasladado`. `req_status: 0`: el destino no pudo; MS-07 vuelve a registrar al ciudadano en GovCarpeta, reabre
+        la Carpeta y no borra nada. Idempotente.
+      security: []
+      parameters:
+        - { name: token, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, req_status]
+              properties:
+                id: { oneOf: [{ type: integer }, { type: string }], description: Cédula del ciudadano }
+                req_status: { type: integer, enum: [0, 1] }
+      responses:
+        '200':
+          description: Confirmación recibida
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  recibido: { type: boolean }
+        '404': { $ref: '#/components/responses/Problema' }
+        '409': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
   /salud:
     get:
       operationId: salud
@@ -289,6 +392,15 @@ components:
     bearer: { type: http, scheme: bearer, bearerFormat: JWT }
     entidad: { type: http, scheme: bearer, bearerFormat: JWS, description: 'JWS compacto RS256 o ES256 con { iss, iat, exp }, vida máxima de 5 minutos' }
   schemas:
+    TrasladoDeSalida:
+      type: object
+      required: [id, estado, operador, creado]
+      properties:
+        id: { type: string, format: uuid }
+        estado: { type: string, enum: [en-curso, completo, fallido, atencion], description: '`fallido`: el destino no recibió y el ciudadano sigue aquí; `atencion`: no se pudo devolver al ciudadano a este operador y el caso se escala' }
+        operador: { type: string, description: Operador destino }
+        motivo: { type: string, description: Solo en `fallido` y `atencion` }
+        creado: { type: string, format: date-time }
     Traslado:
       type: object
       required: [operador, id, nombre, apellido, direccion, correo, correoContacto, telefono, confirmAPI, documentos, firma]

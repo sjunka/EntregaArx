@@ -27,6 +27,7 @@ await iniciarConsumidor({
     'mcs.ciudadano.afiliado': (e) => notificador.alAfiliar(e.datos),
     'mcs.documento.recibido': (e) => notificador.alRecibirDocumento(e),
     'mcs.envio.entregado': (e) => notificador.alEntregarEnvio(e),
+    'mcs.ciudadano.trasladado': (e) => repos.contactos.borrar(e.datos.cedula),
   },
 })
 

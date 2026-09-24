@@ -4,6 +4,7 @@ import { crearApp, crearLimite } from './app.js'
 import { crearKeycloak } from './keycloak.js'
 import { crearPasarela } from './pasarela.js'
 import { crearRepoTraslados, migrarTraslados, rutasTraslados } from './traslados.js'
+import { crearRepoSalida, migrarSalida, rutasSalida } from './salida.js'
 import { Kafka, Partitioners } from 'kafkajs'
 import { crearBandeja, crearPublicador, crearRegistro, iniciarRelevo } from '@mcs/eventos'
 
@@ -20,6 +21,7 @@ if (process.argv.includes('--migrar')) {
   )`)
   await crearBandeja(db).migrar()
   await migrarTraslados(db)
+  await migrarSalida(db)
   console.log(JSON.stringify({ nivel: 'info', mensaje: 'migración de afiliacion aplicada' }))
   await db.end()
 } else {
@@ -38,8 +40,10 @@ if (process.argv.includes('--migrar')) {
   })
   const jwks = createRemoteJWKSet(new URL(env.OIDC_JWKS_URL))
   const operador = env.OPERADOR_NOMBRE ?? 'Mi Carpeta Segura'
+  const verificarServicio = async (token) => (await jwtVerify(token, jwks, { issuer: env.OIDC_ISSUER, audience: 'afiliacion' })).payload
   const app = crearApp({
     db, pasarela, keycloak,
+    salida: rutasSalida({ repo: crearRepoSalida(db), keycloak, pasarela, operador, verificar: verificarServicio }),
     traslados: rutasTraslados({
       repo: crearRepoTraslados(db), keycloak, pasarela, operador, secreto: env.ACTIVACION_SECRETO,
       verificar: async (token) => (await jwtVerify(token, jwks, { issuer: env.OIDC_ISSUER, audience: 'afiliacion' })).payload,

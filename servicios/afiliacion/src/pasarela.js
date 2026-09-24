@@ -19,5 +19,7 @@ export function crearPasarela({ url }) {
   return {
     consultar: (cedula) => llamar('GET', `/centralizador/ciudadanos/${cedula}`),
     registrar: (c) => llamar('POST', '/centralizador/ciudadanos', c),
+    // HU-13: baja del ciudadano en GovCarpeta (unregisterCitizen) al empezar un traslado de salida.
+    desafiliar: (cedula) => llamar('DELETE', `/centralizador/ciudadanos/${cedula}`),
   }
 }

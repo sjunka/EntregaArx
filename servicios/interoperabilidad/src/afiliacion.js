@@ -7,10 +7,10 @@ export class ErrorAfiliacion extends Error {
 }
 
 export function crearAfiliacion({ url, token, timeoutMs = 40_000 }) {
-  async function llamar(ruta, cuerpo) {
+  async function llamar(ruta, cuerpo, metodo = 'POST') {
     const r = await fetch(url + ruta, {
-      method: 'POST', signal: AbortSignal.timeout(timeoutMs),
-      headers: { authorization: `Bearer ${await token()}`, 'content-type': 'application/json' }, body: JSON.stringify(cuerpo ?? {}),
+      method: metodo, signal: AbortSignal.timeout(timeoutMs),
+      headers: { authorization: `Bearer ${await token()}`, ...(metodo === 'POST' && { 'content-type': 'application/json' }) }, ...(metodo === 'POST' && { body: JSON.stringify(cuerpo ?? {}) }),
     })
     const json = await r.json().catch(() => ({}))
     if (!r.ok) throw new ErrorAfiliacion(r.status, json.detail ?? json.title ?? `afiliación ${r.status}`)
@@ -23,5 +23,13 @@ export function crearAfiliacion({ url, token, timeoutMs = 40_000 }) {
     completar: (cedula) => llamar(`/interno/traslados/${cedula}/completar`),
     // El traslado falló: MS-03 borra la cuenta creada. Idempotente.
     cancelar: (cedula) => llamar(`/interno/traslados/${cedula}/cancelar`),
+    // HU-13 · Traslado de salida. Lo que se manda al destino: { cedula, cuenta, nombre, estado }.
+    consultarSalida: (cedula) => llamar(`/interno/salida/${cedula}`, undefined, 'GET'),
+    // Baja en GovCarpeta (unregisterCitizen). Idempotente.
+    baja: (cedula) => llamar(`/interno/salida/${cedula}/baja`),
+    // El destino rechazó: MS-03 vuelve a registrar al ciudadano en GovCarpeta. Idempotente.
+    reafiliar: (cedula) => llamar(`/interno/salida/${cedula}/reafiliacion`),
+    // El destino confirmó: MS-03 borra la cuenta y los datos. Idempotente.
+    cierre: (cedula) => llamar(`/interno/salida/${cedula}/cierre`),
   }
 }

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Pasarela del centralizador (MS-08)
-  version: 0.3.0
+  version: 0.4.0
   description: >
     Capa anticorrupción sobre GovCarpeta: timeout de 8 s, reintento solo en lecturas y circuit
     breaker. Nunca acepta contenido documental (RI-01, RD-15, RNF-21: cuerpos de 2 KB como máximo).
@@ -28,6 +28,26 @@ paths:
                   afiliado: { type: boolean }
                   operador: { type: [string, 'null'] }
         '400': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
+    delete:
+      operationId: desafiliarCiudadano
+      summary: Da de baja al ciudadano de este operador (unregisterCitizen), al empezar un Traslado de salida (HU-13)
+      description: >
+        Escritura: solo viajan id y operador (RI-01). 200, 201 y 204 de GovCarpeta dejan libre al ciudadano. Sin
+        GOVCARPETA_ESCRITURA=1 en el GovCarpeta real no se envía nada y responde 503.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, pattern: '^[0-9]{6,10}$' } }
+      responses:
+        '200':
+          description: Dado de baja
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  desafiliado: { type: boolean }
+        '400': { $ref: '#/components/responses/Problema' }
+        '502': { $ref: '#/components/responses/Problema' }
         '503': { $ref: '#/components/responses/Problema' }
   /centralizador/ciudadanos:
     post:
@@ -57,6 +77,27 @@ paths:
                   registrado: { type: boolean }
         '400': { $ref: '#/components/responses/Problema' }
         '413': { $ref: '#/components/responses/Problema' }
+        '502': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
+  /centralizador/operadores:
+    get:
+      operationId: listarOperadores
+      summary: Directorio de operadores (getOperators), para el Traslado de salida (HU-13)
+      description: Solo los que publican `transferAPIURL` pueden recibir un traslado (B-16); los demás llevan null.
+      responses:
+        '200':
+          description: Operadores del centralizador
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  required: [id, nombre, transferAPIURL]
+                  properties:
+                    id: { type: string }
+                    nombre: { type: string }
+                    transferAPIURL: { type: [string, 'null'] }
         '502': { $ref: '#/components/responses/Problema' }
         '503': { $ref: '#/components/responses/Problema' }
   /centralizador/documentos/autenticacion:

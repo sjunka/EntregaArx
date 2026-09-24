@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mcs.example/contratos/eventos/ciudadano-trasladado.v1.schema.json",
+  "title": "Ciudadano trasladado (data de un CloudEvent 1.0)",
+  "description": "MS-07 publica este hecho cuando el operador destino confirmó el Traslado de salida (req_status 1) y ya se cerraron la cuenta y los documentos (HU-13). MS-05 y MS-09 borran los datos que tienen del ciudadano, cada uno en su propia base (RD-11). No lleva contenido ni contacto. MS-02 no lo consume: la bitácora es inalterable (RNF-14).",
+  "x-cloudevent": {
+    "type": "co.carpetasegura.ciudadano.trasladado",
+    "source": "/mcs/interoperabilidad",
+    "subject": "ciudadano/{cedula}",
+    "tema": "mcs.ciudadano.trasladado",
+    "sujetoRegistro": "mcs.ciudadano.trasladado-value"
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["cedula", "trasladadoEn"],
+  "properties": {
+    "cedula": { "type": "string", "pattern": "^[0-9]{6,10}$" },
+    "trasladadoEn": { "type": "string", "format": "date-time" }
+  }
+}

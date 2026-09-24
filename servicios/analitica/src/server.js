@@ -16,6 +16,7 @@ await repo.indices()
 
 // REGIONES_EMISORES = "emisor=Región;emisor2=Región2": región de cada institución emisora (ADR-0023).
 const regiones = new Map((env.REGIONES_EMISORES ?? '').split(';').filter(Boolean).map((par) => par.split('=').map((s) => s.trim())))
+if (!env.ANALITICA_SAL) throw new Error('Falta ANALITICA_SAL: sin sal la llave de deduplicación no es opaca')
 const anonimizar = crearAnonimizador({ regiones, sal: env.ANALITICA_SAL })
 
 // MS-10 consume los Certificados vigentes y consolida solo metadatos anonimizados; no está en el camino crítico de la carpeta.

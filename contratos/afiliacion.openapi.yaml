@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Afiliación (MS-03)
-  version: 0.4.0
+  version: 0.5.0
   description: >
     Registro de ciudadanos con afiliación única contra GovCarpeta. Realiza HU-01
     (RF-01.1, RF-01.2, RF-01.3, RF-01.5, RI-03). La verificación de identidad contra la
@@ -143,6 +143,101 @@ paths:
         - { name: cedula, in: path, required: true, schema: { type: string } }
       responses:
         '200': { description: Deshecho }
+        '409': { $ref: '#/components/responses/Problema' }
+  /interno/salida/{cedula}:
+    get:
+      operationId: consultarSalida
+      summary: Datos que MS-07 envía al operador destino en un Traslado de salida (HU-13)
+      description: 'Solo cédula, cuenta institucional y nombre: nunca dirección, teléfono ni correo de contacto.'
+      security: [{ servicio: [] }]
+      parameters:
+        - { name: cedula, in: path, required: true, schema: { type: string, pattern: '^[0-9]{6,10}$' } }
+      responses:
+        '200':
+          description: Ciudadano afiliado o en salida
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cedula, cuenta, nombre, estado]
+                properties:
+                  cedula: { type: string }
+                  cuenta: { type: string, format: email }
+                  nombre: { type: string }
+                  estado: { type: string, enum: [afiliado, salida] }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '404': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+  /interno/salida/{cedula}/baja:
+    post:
+      operationId: bajaSalida
+      summary: Da de baja al ciudadano en GovCarpeta (unregisterCitizen) al empezar un Traslado de salida
+      description: >
+        Consulta GovCarpeta: si lo tiene otro operador responde 409 y no escribe; si ya no lo tiene, no repite la baja. Deja al
+        ciudadano en estado `salida` (sigue con su cuenta, en solo lectura). GovCarpeta caído: 503 para reintentar; rechazo: 502.
+        Con GOVCARPETA_ESCRITURA sin activar en el GovCarpeta real la pasarela no escribe (503). Idempotente.
+      security: [{ servicio: [] }]
+      parameters:
+        - { name: cedula, in: path, required: true, schema: { type: string, pattern: '^[0-9]{6,10}$' } }
+      responses:
+        '200':
+          description: En salida
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [estado]
+                properties:
+                  estado: { type: string, const: salida }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '404': { $ref: '#/components/responses/Problema' }
+        '409': { $ref: '#/components/responses/Problema' }
+        '502': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
+  /interno/salida/{cedula}/reafiliacion:
+    post:
+      operationId: reafiliarSalida
+      summary: El destino rechazó el traslado; vuelve a registrar al ciudadano con este operador
+      description: >
+        Si GovCarpeta lo tiene en otro operador responde 409 y no escribe (RI-03); si está libre lo registra con nombre,
+        dirección y cuenta; si ya está aquí no repite. Deja al ciudadano `afiliado`. Idempotente.
+      security: [{ servicio: [] }]
+      parameters:
+        - { name: cedula, in: path, required: true, schema: { type: string, pattern: '^[0-9]{6,10}$' } }
+      responses:
+        '200':
+          description: Afiliado de nuevo
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [estado]
+                properties:
+                  estado: { type: string, const: afiliado }
+        '404': { $ref: '#/components/responses/Problema' }
+        '409': { $ref: '#/components/responses/Problema' }
+        '502': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
+  /interno/salida/{cedula}/cierre:
+    post:
+      operationId: cerrarSalida
+      summary: El destino confirmó (req_status 1); borra la cuenta y los datos del ciudadano
+      description: Solo con el ciudadano en estado `salida`, si no 409 y no borra nada. Sin registro devuelve 200 (idempotente).
+      security: [{ servicio: [] }]
+      parameters:
+        - { name: cedula, in: path, required: true, schema: { type: string, pattern: '^[0-9]{6,10}$' } }
+      responses:
+        '200':
+          description: Cuenta cerrada
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [estado]
+                properties:
+                  estado: { type: string, const: cerrada }
         '409': { $ref: '#/components/responses/Problema' }
   /salud:
     get:

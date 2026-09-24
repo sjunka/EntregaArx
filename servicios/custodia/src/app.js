@@ -26,6 +26,7 @@ const EXTENSION = { 'application/pdf': '.pdf', 'image/jpeg': '.jpg', 'image/png'
 const DESCARGABLES = ['cargado', 'sustituido', 'vigente']
 export const VIDA_DESCARGA = 60 // segundos: RNF-11, la URL prefirmada dura lo justo para abrirla
 export const VIDA_LECTURA_TERCERO = 300 // segundos: el tercero la usa apenas la recibe
+export const VIDA_TRASLADO = 24 * 3600 // segundos: el operador destino puede tardar en descargar (HU-13)
 
 export function validarSolicitud({ titulo, tipo, tamano } = {}) {
   if (typeof titulo !== 'string' || !titulo.trim()) return [422, 'Falta el título', 'Escribe un nombre para el documento.']
@@ -68,7 +69,7 @@ export function validarCertificado(c = {}) {
 // almacen y almacenCertificados (urlCarga, urlLectura, cabecera, sha256, borrar), pasarela (autenticar),
 // autorizaciones (decidir: cliente de MS-06, RI-08), descargar(url, { tamano }) → Buffer (Traslado de entrada, src/traslado.js).
 // Los Certificados van a su propio bucket: en el objetivo con retención bloqueada (ADR-0004).
-export function crearApp({ documentos, verificar, almacen, almacenCertificados, pasarela, autorizaciones, descargar, origenes = [] }) {
+export function crearApp({ documentos, verificar, almacen, almacenCertificados, pasarela, autorizaciones, descargar, vidaTraslado = VIDA_TRASLADO, origenes = [] }) {
   const app = express()
   app.use((req, res, next) => {
     const o = req.headers.origin
@@ -117,6 +118,7 @@ export function crearApp({ documentos, verificar, almacen, almacenCertificados, 
     if (invalido) return problema(res, 422, 'Certificado inválido', invalido)
     try {
       const c = req.body
+      if (await documentos.congelada(c.cedula)) return problema(res, 409, 'Carpeta en traslado', 'El titular está trasladando su carpeta a otro operador: la entidad debe entregar el certificado al nuevo operador.')
       const id = randomUUID()
       const { documento, existente } = await documentos.crearCertificado({
         id, titular: c.cedula, titulo: c.titulo.trim(), tipo: c.tipo, tamano: c.tamano, sha256: c.sha256, emisor: c.emisor, idExterno: c.idExterno,
@@ -221,6 +223,41 @@ export function crearApp({ documentos, verificar, almacen, almacenCertificados, 
     } catch (e) { next(e) }
   })
 
+  // HU-13 · Traslado de salida. Congelar deja la Carpeta en solo lectura y entrega una URL de lectura por documento para el
+  // operador destino (RI-06: el binario va del almacén al destino; RI-01: a GovCarpeta no llega nada de esto). Idempotente:
+  // repetirlo da URL nuevas. La interoperabilidad decide cuándo reabrir (destino rechazó) o cerrar (destino confirmó).
+  const cedulaSalida = (req, res) => /^[0-9]{6,10}$/.test(req.params.cedula) || (problema(res, 422, 'Cédula inválida'), false)
+  interno.post('/salida/:cedula/congelacion', async (req, res, next) => {
+    if (!cedulaSalida(req, res)) return
+    try {
+      await documentos.congelar(req.params.cedula)
+      const lista = await documentos.listar(req.params.cedula)
+      res.json({ documentos: await Promise.all(lista.map(async (d) => ({
+        id: d.id, titulo: d.titulo, clase: d.clase,
+        url: await (d.clase === 'certificado' ? almacenCertificados : almacen).urlLectura(`${d.titular}/${d.id}`, { vida: vidaTraslado }),
+      }))) })
+    } catch (e) { next(e) }
+  })
+  interno.delete('/salida/:cedula/congelacion', async (req, res, next) => {
+    if (!cedulaSalida(req, res)) return
+    try { await documentos.reabrir(req.params.cedula); res.json({}) } catch (e) { next(e) }
+  })
+  // Solo con la Carpeta congelada: sin un traslado en curso nada se borra. Un archivo que no se pueda borrar se avisa, no bloquea.
+  interno.delete('/salida/:cedula', async (req, res, next) => {
+    if (!cedulaSalida(req, res)) return
+    try {
+      // Repetir el cierre ya hecho es inocuo; cerrar una Carpeta con documentos que no está congelada, no.
+      if (!(await documentos.congelada(req.params.cedula))) {
+        return (await documentos.listar(req.params.cedula)).length ? problema(res, 409, 'La carpeta no está en traslado', 'Solo se borra una carpeta congelada por un traslado de salida.') : res.json({ borrados: 0 })
+      }
+      const borrados = await documentos.borrarCarpeta(req.params.cedula)
+      for (const d of borrados) {
+        try { await (d.clase === 'certificado' ? almacenCertificados : almacen).borrar(`${d.titular}/${d.id}`) } catch (e) { log('warn', 'no se pudo borrar un archivo del traslado de salida', { documento: d.id, detalle: e.message }) }
+      }
+      res.json({ borrados: borrados.length })
+    } catch (e) { next(e) }
+  })
+
   // HU-08: qué documentos de la lista son del titular y están en su Carpeta (el envío no comparte lo que no es suyo).
   interno.post('/comprobacion', async (req, res, next) => {
     const { cedula, documentos: ids } = req.body ?? {}
@@ -239,6 +276,15 @@ export function crearApp({ documentos, verificar, almacen, almacenCertificados, 
     if (req.claims.azp !== 'portal' || !req.claims.cedula) return problema(res, 401, 'Token no válido para custodia')
     req.titular = { cedula: req.claims.cedula, cuenta: req.claims.preferred_username }
     next()
+  })
+
+  // HU-13: con un traslado de salida en curso la Carpeta es de solo lectura.
+  app.use(async (req, res, next) => {
+    if (req.method === 'GET') return next()
+    try {
+      if (!(await documentos.congelada(req.titular.cedula))) return next()
+      problema(res, 409, 'Tu carpeta está en solo lectura', 'Estamos trasladando tu carpeta a otro operador. Puedes consultar y descargar tus documentos, pero no cambiarlos hasta que el traslado termine.')
+    } catch (e) { next(e) }
   })
 
   // Documento del titular o 403: ajeno e inexistente responden igual para no revelar qué hay en otras carpetas.

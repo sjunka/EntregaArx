@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Bell, Eye, FolderLock, Inbox, LogIn, LogOut, Send, UserPlus } from 'lucide-react'
+import { Bell, Eye, Truck, FolderLock, Inbox, LogIn, LogOut, Send, UserPlus } from 'lucide-react'
 import { sesion } from './sesion.js'
 import Tema from './Tema.jsx'
 import Registro from './Registro.jsx'
@@ -9,6 +9,7 @@ import Avisos from './Avisos.jsx'
 import Solicitudes from './Solicitudes.jsx'
 import Enviar from './Enviar.jsx'
 import Activar from './Activar.jsx'
+import Salida from './Salida.jsx'
 import Accesos from './Accesos.jsx'
 import Empresa from './Empresa.jsx'
 import Tablero from './Tablero.jsx'
@@ -47,6 +48,7 @@ export default function App() {
   else if (usuario && hash === 'subir') contenido = <Subir alVencer={alVencer} />
   else if (usuario && hash === 'avisos') contenido = <Avisos alVencer={alVencer} />
   else if (usuario && hash === 'solicitudes') contenido = <Solicitudes alVencer={alVencer} />
+  else if (usuario && hash === 'traslado') contenido = <Salida alVencer={alVencer} />
   else if (usuario && hash === 'accesos') contenido = <Accesos alVencer={alVencer} />
   else if (usuario && hash === 'enviar') contenido = <Enviar alVencer={alVencer} />
   else if (usuario) contenido = <Carpeta nombre={usuario.profile.given_name} alVencer={alVencer} />
@@ -81,6 +83,9 @@ export default function App() {
               </a>
               <a className="btn-secundario" href="#accesos">
                 <Eye size={20} strokeWidth={1.75} aria-hidden="true" /> Accesos
+              </a>
+              <a className="btn-secundario" href="#traslado">
+                <Truck size={20} strokeWidth={1.75} aria-hidden="true" /> Trasladarme
               </a>
               <a className="btn-secundario" href="#avisos">
                 <Bell size={20} strokeWidth={1.75} aria-hidden="true" /> Avisos

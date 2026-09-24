@@ -64,3 +64,14 @@ test('un Certificado trasladado llega Vigente con su emisor', { skip: !url }, as
   const [d] = await repo.listar(CEDULA)
   assert.deepEqual([d.clase, d.estado, d.emisor], ['certificado', 'vigente', 'operador-origen'])
 })
+
+// HU-13: al confirmarse el Traslado de salida, la proyección de ese ciudadano se borra y la de otros no.
+test('trasladado borra la proyección del ciudadano, solo la suya, y es idempotente', { skip: !url }, async () => {
+  await limpiar()
+  await repo.cargado(cargado(1))
+  await repo.cargado(cargado(2, { cedula: '2000000002' }))
+  await repo.trasladado({ cedula: CEDULA, trasladadoEn: '2026-09-24T10:00:00Z' })
+  await repo.trasladado({ cedula: CEDULA, trasladadoEn: '2026-09-24T10:00:00Z' })
+  assert.deepEqual(await repo.listar(CEDULA), [])
+  assert.equal((await repo.listar('2000000002')).length, 1)
+})

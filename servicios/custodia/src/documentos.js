@@ -47,6 +47,8 @@ export async function migrar(db) {
   await db.query('ALTER TABLE documentos ADD COLUMN IF NOT EXISTS origen text')
   await db.query('ALTER TABLE documentos ADD COLUMN IF NOT EXISTS origen_id text')
   await db.query('CREATE UNIQUE INDEX IF NOT EXISTS documentos_origen ON documentos (origen, origen_id) WHERE origen IS NOT NULL')
+  // HU-13: Traslado de salida. Una Carpeta congelada es de solo lectura hasta que el destino confirme (o rechace).
+  await db.query('CREATE TABLE IF NOT EXISTS carpetas_congeladas (titular text PRIMARY KEY, desde timestamptz NOT NULL DEFAULT now())')
   // HU-06: bandeja de salida con los eventos hacia MS-05 (índice) y MS-02 (auditoría), ADR-0018.
   await crearBandeja(db).migrar()
 }
@@ -100,6 +102,26 @@ export function crearRepositorio(db) {
       `SELECT * FROM documentos WHERE titular = $1
          AND ((clase = 'temporal' AND estado IN ('cargado', 'sustituido')) OR (clase = 'certificado' AND estado = 'vigente'))
        ORDER BY creado DESC`, [titular])).rows.map(aDocumento),
+    // Traslado de salida (HU-13). Cerrar borra todo lo del titular en la misma sentencia (sin eventos por documento: MS-07
+    // publica un solo `ciudadano.trasladado`) y devuelve lo borrado para que la custodia elimine los archivos.
+    congelar: (titular) => db.query('INSERT INTO carpetas_congeladas (titular) VALUES ($1) ON CONFLICT DO NOTHING', [titular]),
+    reabrir: (titular) => db.query('DELETE FROM carpetas_congeladas WHERE titular = $1', [titular]),
+    congelada: async (titular) => (await db.query('SELECT 1 FROM carpetas_congeladas WHERE titular = $1', [titular])).rowCount > 0,
+    async borrarCarpeta(titular) {
+      const c = await db.connect()
+      try {
+        await c.query('BEGIN')
+        const { rows } = await c.query('DELETE FROM documentos WHERE titular = $1 RETURNING *', [titular])
+        await c.query('DELETE FROM carpetas_congeladas WHERE titular = $1', [titular])
+        await c.query('COMMIT')
+        return rows.map(aDocumento)
+      } catch (err) {
+        await c.query('ROLLBACK')
+        throw err
+      } finally {
+        c.release()
+      }
+    },
     // Traslado de entrada (HU-09): el documento llega Cargado (Temporal) o Vigente (Certificado) y el evento de carga sale en la misma transacción.
     buscarPorOrigen: (origen, idOrigen) => uno('SELECT * FROM documentos WHERE origen = $1 AND origen_id = $2', [origen, idOrigen]),
     crearTrasladado: (d) => conEvento(

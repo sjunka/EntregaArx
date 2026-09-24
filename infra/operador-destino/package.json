@@ -1,0 +1,9 @@
+{
+  "name": "mcs-operador-destino",
+  "private": true,
+  "type": "module",
+  "dependencies": {},
+  "engines": {
+    "node": ">=22"
+  }
+}

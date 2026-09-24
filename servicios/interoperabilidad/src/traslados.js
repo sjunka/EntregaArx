@@ -27,7 +27,7 @@ const privada = (ip) => {
 
 // La URL de confirmación la pone el operador de origen (firmada): solo https y nunca la red interna, salvo los hosts
 // internos que compose permite. ponytail: copia de la política de la custodia (src/traslado.js); extraer si se necesita una tercera.
-async function urlPermitida(url, hostsInternos, resolver) {
+export async function urlPermitida(url, hostsInternos, resolver) {
   let u
   try { u = new URL(url) } catch { return false }
   const host = u.hostname.replace(/^\[|\]$/g, '')

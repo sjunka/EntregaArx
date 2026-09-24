@@ -151,3 +151,50 @@ test('el cliente autentica con PUT y sin permiso de escritura no envía nada', a
   const malo = crearCliente({ base: 'http://gov', escritura: true, fetch: async () => new Response('no', { status: 501 }) })
   await assert.rejects(malo.autenticar({}), Rechazo)
 })
+
+// HU-13 · Traslado de salida: unregisterCitizen (escritura) y getOperators (lectura). Solo viajan datos de afiliación (RI-01).
+test('desafiliar viaja como DELETE con id y operador, y sin permiso de escritura no envía nada', async () => {
+  const llamadas = []
+  const fetch = async (url, o) => { llamadas.push([o.method, url, o.body]); return new Response('Ciudadano dado de baja', { status: 200 }) }
+  await crearCliente({ base: 'http://x', escritura: true, fetch }).desafiliar({ id: 9912345678, operatorId: 'op-1', operatorName: 'Mi Carpeta Segura' })
+  assert.deepEqual(llamadas, [['DELETE', 'http://x/apis/unregisterCitizen', JSON.stringify({ id: 9912345678, operatorId: 'op-1', operatorName: 'Mi Carpeta Segura' })]])
+  llamadas.length = 0
+  await assert.rejects(crearCliente({ base: 'http://x', escritura: false, fetch }).desafiliar({}), EscrituraDeshabilitada)
+  assert.equal(llamadas.length, 0)
+})
+
+test('desafiliar: 200 y 204 dejan libre al ciudadano; otro código es un rechazo', async () => {
+  for (const status of [200, 201, 204]) await crearCliente({ base: 'http://x', escritura: true, fetch: async () => new Response(status === 204 ? null : 'ok', { status }) }).desafiliar({})
+  await assert.rejects(crearCliente({ base: 'http://x', escritura: true, fetch: async () => new Response('no existe', { status: 501 }) }).desafiliar({}), Rechazo)
+})
+
+test('operadores normaliza getOperators: id, nombre y transferAPIURL solo cuando existe', async () => {
+  const lista = [
+    { _id: 'a1', operatorName: 'Operador Uno', transferAPIURL: ' https://uno.example/api/transferCitizen ' },
+    { _id: 'b2', operatorName: 'Operador Dos', transferAPIURL: '' },
+    { OperatorId: 'c3', OperatorName: 'Operador Tres' },
+  ]
+  const cliente = crearCliente({ base: 'http://x', fetch: async (url) => { assert.equal(url, 'http://x/apis/getOperators'); return new Response(JSON.stringify(lista), { status: 200 }) } })
+  assert.deepEqual(await cliente.operadores(), [
+    { id: 'a1', nombre: 'Operador Uno', transferAPIURL: 'https://uno.example/api/transferCitizen' },
+    { id: 'b2', nombre: 'Operador Dos', transferAPIURL: null },
+    { id: 'c3', nombre: 'Operador Tres', transferAPIURL: null },
+  ])
+})
+
+test('DELETE /centralizador/ciudadanos/:id da de baja con el operador de la pasarela; cédula inválida 400', async () => {
+  const enviados = []
+  const cliente = { desafiliar: async (c) => { enviados.push(c) } }
+  const r = await pedir(cliente, 'DELETE', '/centralizador/ciudadanos/9912345678')
+  assert.equal(r.status, 200)
+  assert.deepEqual(enviados, [{ id: 9912345678, operatorId: 'op-1', operatorName: 'Mi Carpeta Segura' }])
+  assert.equal((await pedir(cliente, 'DELETE', '/centralizador/ciudadanos/12a')).status, 400)
+  assert.equal((await pedir({ desafiliar: async () => { throw new EscrituraDeshabilitada() } }, 'DELETE', '/centralizador/ciudadanos/9912345678')).status, 503)
+  assert.equal((await pedir({ desafiliar: async () => { throw new Rechazo(501, 'no registrado') } }, 'DELETE', '/centralizador/ciudadanos/9912345678')).status, 502)
+})
+
+test('GET /centralizador/operadores lista los operadores del centralizador', async () => {
+  const r = await pedir({ operadores: async () => [{ id: 'a1', nombre: 'Uno', transferAPIURL: null }] }, 'GET', '/centralizador/operadores')
+  assert.equal(r.status, 200)
+  assert.deepEqual(r.cuerpo, [{ id: 'a1', nombre: 'Uno', transferAPIURL: null }])
+})

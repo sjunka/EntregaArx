@@ -25,7 +25,7 @@ export function repositorioEnMemoria() {
   const evento = (nombre, datos) => eventos.push({ nombre, datos })
   const cambiar = (id, cambios) => { if (cambios.estado) transiciones.push([id, cambios.estado]); return Object.assign(filas.get(id), cambios) }
   const visible = (d) => (d.clase === 'temporal' ? ['cargado', 'sustituido'] : ['vigente']).includes(d.estado)
-  return {
+  const repo = {
     filas, transiciones, eventos,
     uso: async (titular) => {
       const v = [...filas.values()].filter((d) => d.titular === titular && d.clase === 'temporal' && d.estado === 'cargado' && !d.origen)
@@ -51,6 +51,17 @@ export function repositorioEnMemoria() {
       return d
     },
     listar: async (titular) => [...filas.values()].filter((d) => d.titular === titular && visible(d)),
+    // Traslado de salida (HU-13): la Carpeta se congela (solo lectura) mientras el destino confirma y se borra al cerrar.
+    congeladas: new Set(),
+    congelar: async (titular) => { repo.congeladas.add(titular) },
+    reabrir: async (titular) => { repo.congeladas.delete(titular) },
+    congelada: async (titular) => repo.congeladas.has(titular),
+    borrarCarpeta: async (titular) => {
+      const borrados = [...filas.values()].filter((d) => d.titular === titular)
+      for (const d of borrados) filas.delete(d.id)
+      repo.congeladas.delete(titular)
+      return borrados
+    },
     // Traslado de entrada (HU-09): conserva la clase, no consume cuota y es idempotente por (origen, idOrigen).
     buscarPorOrigen: async (origen, idOrigen) => [...filas.values()].find((d) => d.origen === origen && d.idOrigen === idOrigen) ?? null,
     crearTrasladado: async (d) => {
@@ -83,6 +94,7 @@ export function repositorioEnMemoria() {
       return { documento: cambiar(id, { estado: 'vigente' }), sustituyeA: eq?.id }
     },
   }
+  return repo
 }
 
 // Almacén falso: guarda lo que el "navegador" subió por la URL prefirmada.

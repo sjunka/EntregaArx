@@ -14,6 +14,7 @@ export const EVENTOS = {
   'documento.eliminado': { tipo: 'co.carpetasegura.documento.eliminado', fuente: '/mcs/custodia', tema: 'mcs.documento.eliminado', sujeto: 'mcs.documento.eliminado-value' },
   'acceso.registrado': { tipo: 'co.carpetasegura.acceso.registrado', fuente: '/mcs/custodia', tema: 'mcs.acceso.registrado', sujeto: 'mcs.acceso.registrado-value' },
   'envio.entregado': { tipo: 'co.carpetasegura.envio.entregado', fuente: '/mcs/interoperabilidad', tema: 'mcs.envio.entregado', sujeto: 'mcs.envio.entregado-value' },
+  'ciudadano.trasladado': { tipo: 'co.carpetasegura.ciudadano.trasladado', fuente: '/mcs/interoperabilidad', tema: 'mcs.ciudadano.trasladado', sujeto: 'mcs.ciudadano.trasladado-value' },
   'ciudadano.afiliado': { tipo: 'co.carpetasegura.ciudadano.afiliado', fuente: '/mcs/afiliacion', tema: 'mcs.ciudadano.afiliado', sujeto: 'mcs.ciudadano.afiliado-value' },
 }
 

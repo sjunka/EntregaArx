@@ -26,7 +26,7 @@ export function crearKeycloak({ url, realm, clientId, clientSecret, fetch = glob
       const r = await llamar('GET', `/users?exact=true&username=${encodeURIComponent(username)}`)
       if (!r.ok) throw new Error(`Keycloak buscar usuario ${r.status}`)
       const [u] = await r.json()
-      return u ? { id: u.id, cedula: u.attributes?.cedula?.[0] ?? null, habilitado: u.enabled } : null
+      return u ? { id: u.id, cedula: u.attributes?.cedula?.[0] ?? null, habilitado: u.enabled, nombre: `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim() } : null
     },
     async crearDeshabilitado({ cuenta, nombre, apellido, correoContacto, telefono, cedula, clave }) {
       const r = await llamar('POST', '/users', {

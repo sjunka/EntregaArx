@@ -23,7 +23,7 @@ export function validarEmision(e = {}) {
 // dependencias: custodia (registrar, verificar, leer), autorizaciones (crearPeticion, consultarPeticion), pasarela (consultar),
 // bandeja (encolar), firmas (conoce, verificar, verificarFirma, verificarToken), envios ({ ciudadano, publico } de rutasEnvios, HU-08),
 // traslados ({ peer, ciudadano } de rutasTraslados, HU-09).
-export function crearApp({ custodia, autorizaciones, pasarela, bandeja, firmas, envios, traslados, origenes = [], operador = 'Mi Carpeta Segura' }) {
+export function crearApp({ custodia, autorizaciones, pasarela, bandeja, firmas, envios, traslados, salida, origenes = [], operador = 'Mi Carpeta Segura' }) {
   const app = express()
   app.use((req, res, next) => {
     const o = req.headers.origin
@@ -86,6 +86,11 @@ export function crearApp({ custodia, autorizaciones, pasarela, bandeja, firmas, 
     }
   })
 
+  // HU-13: traslado de salida (el ciudadano elige y sigue el avance; el destino confirma). Va antes que /traslados.
+  if (salida) {
+    app.use('/traslados/salida', salida.ciudadano)
+    app.use('/api/transferCitizenConfirm', salida.peer)
+  }
   if (traslados) {
     app.use('/api/transferCitizen', traslados.peer)
     app.use('/traslados', traslados.ciudadano)

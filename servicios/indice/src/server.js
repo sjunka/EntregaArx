@@ -22,6 +22,7 @@ await iniciarConsumidor({
     'mcs.documento.autenticado': (e) => repo.autenticado(e.datos),
     'mcs.documento.eliminado': (e) => repo.eliminado(e.datos),
     'mcs.documento.recibido': (e) => repo.recibido(e.datos),
+    'mcs.ciudadano.trasladado': (e) => repo.trasladado(e.datos),
   },
 })
 

@@ -11,6 +11,7 @@ import { crearCustodia, crearProveedorToken } from './custodia.js'
 import { crearBandeja, crearPublicador, crearRegistro, iniciarRelevo } from '@mcs/eventos'
 import { crearVerificadorFirmas } from './firma.js'
 import { crearPasarela } from './pasarela.js'
+import { crearProcesadorSalida, crearRepoSalida, enviarAlDestino, iniciarSalidas, migrarSalida, rutasSalida } from './salida.js'
 import { confirmarAlOrigen, crearProcesador, crearRepoTraslados, iniciarTraslados, migrarTraslados, rutasTraslados } from './traslados.js'
 
 const env = process.env
@@ -23,6 +24,7 @@ if (process.argv.includes('--migrar')) {
   await bandeja.migrar()
   await migrarEnvios(db)
   await migrarTraslados(db)
+  await migrarSalida(db)
   log('info', 'migración de interoperabilidad aplicada')
   await db.end()
 } else {
@@ -51,7 +53,14 @@ if (process.argv.includes('--migrar')) {
   const repoTraslados = crearRepoTraslados(db)
   const hostsInternos = (env.TRASLADO_HOSTS_INTERNOS ?? '').split(',').filter(Boolean)
   iniciarTraslados({ procesador: crearProcesador({ repo: repoTraslados, custodia, afiliacion, confirmar: confirmarAlOrigen }), log })
+  // HU-13: traslado de salida. El estado vive en la base; el procesador congela, da de baja, envía y, tras la confirmación, cierra.
+  const verificarCiudadano = crearVerificador({ issuer: env.OIDC_ISSUER, jwks: createRemoteJWKSet(new URL(env.OIDC_JWKS_URL)) })
+  const pasarelaCentralizador = crearPasarela({ url: env.PASARELA_URL })
+  const repoSalida = crearRepoSalida(db, bandeja)
+  const nombreOperador = env.OPERADOR_NOMBRE ?? 'Mi Carpeta Segura'
+  iniciarSalidas({ procesador: crearProcesadorSalida({ repo: repoSalida, custodia, afiliacion, enviar: enviarAlDestino, urlPublica: env.URL_PUBLICA, secreto: env.ENLACE_SECRETO }), log })
   const app = crearApp({
+    salida: rutasSalida({ repo: repoSalida, pasarela: pasarelaCentralizador, verificar: verificarCiudadano, operador: nombreOperador, secreto: env.ENLACE_SECRETO, hostsInternos }),
     traslados: rutasTraslados({
       firmas: crearVerificadorFirmas({ emisores }), pasarela: crearPasarela({ url: env.PASARELA_URL }), afiliacion, repo: repoTraslados, hostsInternos,
       spaUrl: env.SPA_URL, operador: env.OPERADOR_NOMBRE ?? 'Mi Carpeta Segura',
