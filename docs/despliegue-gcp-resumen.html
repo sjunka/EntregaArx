@@ -11,7 +11,7 @@ svg text{font-family:system-ui,sans-serif}
 table{border-collapse:collapse;font-size:9.5pt}td,th{border:1px solid #ccd;padding:3px 7px;text-align:left}
 </style></head><body>
 <h1>Mi Carpeta Segura: despliegue en GCP</h1>
-<p class="sub">Ticket #16, variante económica (ADR-0015). Proyecto <code>mcs-entrega-2026</code>, región us-east1. Estado: desplegado, smoke 12/12 en verde.</p>
+<p class="sub">Ticket #16, variante económica (ADR-0015). Proyecto <code>mcs-entrega-2026</code>, región us-east1. Estado: desplegado, smoke 12/12 en verde y las 4 funciones de la entrega 3 validadas contra el GovCarpeta real (24 de septiembre de 2026).</p>
 
 <h2>Arquitectura desplegada</h2>
 <svg viewBox="0 0 720 300" width="100%">
@@ -56,6 +56,17 @@ table{border-collapse:collapse;font-size:9.5pt}td,th{border:1px solid #ccd;paddi
 <li>Apply completo: 10 servicios responden 200 en <code>/salud</code>. El emisor de Keycloak coincide con <code>…/realms/carpeta</code>.</li>
 <li>SPA: repo hecho público (Pages no funciona en repos privados del plan gratuito), variables <code>VITE_*</code> fijadas y workflow <code>pages</code> ejecutado.</li>
 <li>Smoke <code>e2e/smoke-gcp.spec.js</code>: 12/12, incluye el ingreso del ciudadano demo con Keycloak y axe. Ticket #16 cerrado.</li>
+</ul>
+
+<h2>Validación de la entrega 3 (GovCarpeta real)</h2>
+<ul>
+<li>Con permiso explícito, la pasarela corre con <code>GOVCARPETA_ESCRITURA=1</code>. Con el valor <code>0</code> el registro fallaba con 503, y con él la carga y la autenticación.</li>
+<li>Registro: HU-01 en verde. <code>validateCitizen</code> devuelve «Mi Carpeta Segura».</li>
+<li>Ingreso: HU-02 con OIDC y PKCE en verde.</li>
+<li>Carga: el binario sube por URL prefirmada a Cloud Storage y el índice lo recibe por Kafka en unos 3 s. Pendiente: la SPA lee la lista antes de que llegue el evento y hay que recargar para ver el documento.</li>
+<li>Autenticación: GovCarpeta responde «autenticación exitosa [Code: 0001]» en 315 ms.</li>
+<li>Las cédulas de prueba (<code>98…</code>, <code>99…</code> y <code>1000000001</code>) quedan registradas en GovCarpeta a propósito, para pruebas del equipo.</li>
+<li>Pendientes: tema propio de Keycloak (hoy sale el tema por defecto en inglés) y devolver <code>LIMITE_REGISTROS_HORA</code> de 30 a 5 en afiliación.</li>
 </ul>
 
 <h2 class="pb">Comandos</h2>

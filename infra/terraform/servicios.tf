@@ -18,7 +18,7 @@ locals {
   # env: valores planos. sec: variable => secreto de Secret Manager. bus: consume o publica eventos (necesita CPU siempre asignada).
   svc = {
     pasarela = {
-      env = { GOVCARPETA_URL = var.govcarpeta_url, GOVCARPETA_ESCRITURA = "0", OPERADOR_ID = var.operador_id, OPERADOR_NOMBRE = "Mi Carpeta Segura" }
+      env = { GOVCARPETA_URL = var.govcarpeta_url, GOVCARPETA_ESCRITURA = "1", OPERADOR_ID = var.operador_id, OPERADOR_NOMBRE = "Mi Carpeta Segura" }
       sec = {}
     }
     afiliacion = {
