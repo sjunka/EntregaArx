@@ -393,6 +393,26 @@ services:
       ORIGENES: http://localhost:4173,http://localhost:5173
     ports: ["8092:8080"]
 
+  # MS-10: analítica anonimizada para el Estado (HU-12). Consume documento.recibido y guarda solo institución, región y año.
+  analitica:
+    build: { context: ., dockerfile: servicios/analitica/Dockerfile }
+    restart: unless-stopped
+    depends_on:
+      mongo: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      esquemas: { condition: service_completed_successfully }
+      identidad: { condition: service_healthy }
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+      KAFKA_BROKERS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      ANALITICA_SAL: ${ANALITICA_SAL:?copia .env.example a .env}
+      REGIONES_EMISORES: universidad-demo=Bogotá D.C.
+      OIDC_ISSUER: http://localhost:8081/realms/carpeta
+      OIDC_JWKS_URL: http://identidad:8080/realms/carpeta/protocol/openid-connect/certs
+      ORIGENES: http://localhost:4173,http://localhost:5173
+    ports: ["8096:8080"]
+
   web:
     build:
       context: ./web
@@ -403,6 +423,7 @@ services:
         VITE_MCS_NOTIFICACIONES: http://localhost:8087
         VITE_MCS_INDICE: http://localhost:8091
         VITE_MCS_AUDITORIA: http://localhost:8092
+        VITE_MCS_ANALITICA: http://localhost:8096
         VITE_MCS_AUTORIZACIONES: http://localhost:8093
         VITE_MCS_INTEROPERABILIDAD: http://localhost:8086
         VITE_MCS_PREMIUM: http://localhost:8095

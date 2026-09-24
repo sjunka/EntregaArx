@@ -11,6 +11,7 @@ import Enviar from './Enviar.jsx'
 import Activar from './Activar.jsx'
 import Accesos from './Accesos.jsx'
 import Empresa from './Empresa.jsx'
+import Tablero from './Tablero.jsx'
 
 // Una sola promesa: StrictMode corre el efecto dos veces y el código de ingreso solo se canjea una vez.
 const inicial = new URLSearchParams(window.location.search).has('code')
@@ -42,6 +43,7 @@ export default function App() {
   let contenido
   if (usuario === undefined) contenido = <p className="text-ink-2" role="status">Abriendo tu carpeta…</p>
   else if (usuario?.profile.empresa) contenido = <Empresa alVencer={alVencer} />
+  else if (usuario?.profile.analista) contenido = <Tablero alVencer={alVencer} />
   else if (usuario && hash === 'subir') contenido = <Subir alVencer={alVencer} />
   else if (usuario && hash === 'avisos') contenido = <Avisos alVencer={alVencer} />
   else if (usuario && hash === 'solicitudes') contenido = <Solicitudes alVencer={alVencer} />
@@ -70,7 +72,7 @@ export default function App() {
           <Tema />
           {usuario ? (
             <>
-              {!usuario.profile.empresa && (<>
+              {!usuario.profile.empresa && !usuario.profile.analista && (<>
               <a className="btn-secundario" href="#enviar">
                 <Send size={20} strokeWidth={1.75} aria-hidden="true" /> Enviar
               </a>

@@ -12,6 +12,7 @@ const USUARIO = {
   cuenta: 'andres.perez.12345@carpetacolombia.co', clave: 'clave-de-prueba',
   cedula: '1012345678', nombres: 'Andrés', apellidos: 'Pérez',
 }
+const ANALISTA = { cuenta: 'analista@mintic.co', clave: 'clave-de-analista' }
 const EMPRESA = { cuenta: 'tramites@empresa-premium.co', clave: 'clave-de-empresa' }
 const VERIFICADOR = 'v'.repeat(43)
 const RETO = createHash('sha256').update(VERIFICADOR).digest('base64url')
@@ -51,6 +52,7 @@ async function conEmisor(prueba) {
   const usuarios = enMemoria()
   await usuarios.crear({ ...USUARIO, clave: await cifrarClave(USUARIO.clave), habilitado: true })
   await usuarios.crear({ cuenta: EMPRESA.cuenta, clave: await cifrarClave(EMPRESA.clave), habilitado: true, nombres: 'Trámites', apellidos: 'Premium', empresa: 'tramites-premium' })
+  await usuarios.crear({ cuenta: ANALISTA.cuenta, clave: await cifrarClave(ANALISTA.clave), habilitado: true, nombres: 'Ana', apellidos: 'Lista', analista: true })
   const app = crearApp({
     emisor: EMISOR,
     llave: await crearLlave(),
@@ -328,6 +330,19 @@ test('la cuenta de una empresa recibe el claim empresa y solo la audiencia premi
   assert.equal(acceso.cedula, undefined)
   assert.deepEqual([].concat(acceso.aud), ['premium'], 'no sirve en la custodia ni en autorizaciones')
   assert.equal(decodeJwt(t.id_token).empresa, 'tramites-premium', 'la SPA sabe por el token de identidad que es una empresa')
+}))
+
+// HU-12: el analista del Estado entra por el mismo flujo, con su claim y solo la audiencia de Analítica: sin cédula.
+test('la cuenta de un analista recibe el claim analista y solo la audiencia analitica', () => conEmisor(async (base) => {
+  const r = await autorizar(base, { username: ANALISTA.cuenta, password: ANALISTA.clave })
+  const t = await (await canjear(base, new URL(r.headers.get('location')).searchParams.get('code'))).json()
+  const jwks = createRemoteJWKSet(new URL(`${base}${RUTA}/certs`))
+  const { payload: acceso } = await jwtVerify(t.access_token, jwks, { issuer: EMISOR, audience: 'analitica' })
+  assert.equal(acceso.analista, true)
+  assert.equal(acceso.azp, 'portal')
+  assert.equal(acceso.cedula, undefined)
+  assert.deepEqual([].concat(acceso.aud), ['analitica'], 'no sirve en ninguna carpeta')
+  assert.equal(decodeJwt(t.id_token).analista, true, 'la SPA sabe por el token de identidad que es un analista')
 }))
 
 test('client_credentials de premium: token para autorizaciones', () => conEmisor(async (base) => {

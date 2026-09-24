@@ -1,0 +1,20 @@
+{
+  "name": "mcs-analitica",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@mcs/eventos": "file:../../libs/eventos",
+    "express": "^5.2.1",
+    "jose": "^6.2.12",
+    "kafkajs": "^2.2.4",
+    "mongodb": "^6.10.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

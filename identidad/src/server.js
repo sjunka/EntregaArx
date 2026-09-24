@@ -27,6 +27,12 @@ if (process.argv.includes('--migrar')) {
          ON CONFLICT (cuenta) DO UPDATE SET clave = $2`, [cuenta, await cifrarClave(env.USUARIO_DEMO_CLAVE), nombres, apellidos, empresa])
     }
   }
+  // Analista del Estado de demostración (MS-10, HU-12): consulta la analítica anonimizada, no tiene carpeta.
+  if (env.USUARIO_DEMO_CLAVE) {
+    await db.query(
+      `INSERT INTO usuarios (cuenta, clave, habilitado, nombres, apellidos, analista) VALUES ('analista@mintic.carpetacolombia.co', $1, true, 'Ana', 'Lista', true)
+       ON CONFLICT (cuenta) DO UPDATE SET clave = $1`, [await cifrarClave(env.USUARIO_DEMO_CLAVE)])
+  }
   console.log(JSON.stringify({ nivel: 'info', mensaje: 'migración de identidad aplicada' }))
   await db.end()
 } else {

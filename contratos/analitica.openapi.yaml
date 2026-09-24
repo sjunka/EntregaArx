@@ -1,0 +1,83 @@
+openapi: 3.1.0
+info:
+  title: Analítica (MS-10)
+  version: 0.1.0
+  description: >
+    Tablero anonimizado para el Estado (HU-12: RF-08.1, RF-08.2, RF-08.6, RNF-15). MS-10 consume `documento.recibido`
+    (contratos/eventos) y guarda solo metadatos disociados de la identidad: institución emisora, región y año. Nunca guarda la
+    cédula, el título ni el contenido. La región es la de la institución emisora (directorio propio de MS-10, ADR-0023).
+    Una celda con menos certificados que el umbral de anonimato se suprime (`diplomas: null`) en vez de publicarse.
+    La analítica es eventualmente consistente: cada respuesta declara su fecha de corte. Exige un Bearer JWT con
+    audiencia `analitica`, `azp: portal` y el claim `analista`; cualquier otro token válido recibe 403. Solo lectura.
+servers:
+  - url: http://localhost:8096
+security:
+  - bearer: []
+paths:
+  /tableros/diplomas:
+    get:
+      operationId: consultarDiplomas
+      summary: Diplomas emitidos por región, con filtros por año y región
+      parameters:
+        - { name: anio, in: query, schema: { type: integer, minimum: 2000, maximum: 2100 }, description: Solo los emitidos ese año }
+        - { name: region, in: query, schema: { type: string, maxLength: 80 }, description: Solo esa región }
+      responses:
+        '200':
+          description: Conteo por región
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TableroDiplomas' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+  /salud:
+    get:
+      operationId: salud
+      security: []
+      summary: Chequeo de salud
+      responses:
+        '200':
+          description: Servicio sano
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [estado]
+                properties:
+                  estado: { type: string, const: ok }
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer, bearerFormat: JWT }
+  schemas:
+    TableroDiplomas:
+      type: object
+      required: [corte, umbral, anios, regiones]
+      properties:
+        corte:
+          type: [string, 'null']
+          format: date-time
+          description: Fecha del último evento consolidado; null si aún no hay datos
+        umbral: { type: integer, description: Mínimo de certificados por celda para publicarla }
+        anios: { type: array, items: { type: integer }, description: 'Años con datos, para el filtro' }
+        regiones:
+          type: array
+          items:
+            type: object
+            required: [region, diplomas, suprimido]
+            properties:
+              region: { type: string }
+              diplomas: { type: [integer, 'null'], description: 'null cuando la celda quedó por debajo del umbral' }
+              suprimido: { type: boolean }
+  responses:
+    Problema:
+      description: Error RFC 9457
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            required: [type, title, status]
+            properties:
+              type: { type: string }
+              title: { type: string }
+              status: { type: integer }
+              detail: { type: string }

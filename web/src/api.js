@@ -6,6 +6,7 @@ const NOTIFICACIONES = import.meta.env.VITE_MCS_NOTIFICACIONES || 'http://localh
 const INDICE = import.meta.env.VITE_MCS_INDICE || 'http://localhost:8091'
 const AUTORIZACIONES = import.meta.env.VITE_MCS_AUTORIZACIONES || 'http://localhost:8093'
 const AUDITORIA = import.meta.env.VITE_MCS_AUDITORIA || 'http://localhost:8092'
+const ANALITICA = import.meta.env.VITE_MCS_ANALITICA || 'http://localhost:8096'
 const PREMIUM = import.meta.env.VITE_MCS_PREMIUM || 'http://localhost:8095'
 const INTEROPERABILIDAD = import.meta.env.VITE_MCS_INTEROPERABILIDAD || 'http://localhost:8086'
 
@@ -104,3 +105,7 @@ export const usoEmpresa = () => conSesion('/uso', {}, PREMIUM)
 export const casos = () => conSesion('/casos', {}, PREMIUM)
 export const abrirCaso = (asunto) => conSesion('/casos', { method: 'POST', body: JSON.stringify({ asunto }) }, PREMIUM)
 export const pedirDocumentos = (casoId, datos) => conSesion(`/casos/${casoId}/peticiones`, { method: 'POST', body: JSON.stringify(datos) }, PREMIUM)
+
+// Tablero del analista del Estado (MS-10, HU-12). La sesión de un analista lleva el claim `analista` y solo sirve aquí.
+export const diplomasPorRegion = (filtros = {}) =>
+  conSesion(`/tableros/diplomas?${new URLSearchParams(Object.entries(filtros).filter(([, v]) => v))}`, {}, ANALITICA)

@@ -23,6 +23,7 @@ docker compose up -d --build
 | Auditoría (MS-02) | http://localhost:8092 |
 | Autorizaciones (MS-06) | http://localhost:8093 |
 | Premium (MS-11) | http://localhost:8095 |
+| Analítica (MS-10) | http://localhost:8096 |
 | Entidad emisora simulada | http://localhost:8088 |
 | MinIO (almacén S3) | http://localhost:9000 (consola 9001) |
 | Schema Registry | http://localhost:8085 |
@@ -32,7 +33,7 @@ docker compose up -d --build
 
 Compose nunca escribe en el GovCarpeta real: la pasarela apunta a un doble local (`infra/govcarpeta-stub/`). La cédula `1000000001` figura afiliada a otro operador, para probar el rechazo. Para usar el real se define `GOVCARPETA_URL`, y escribir en él exige además `GOVCARPETA_ESCRITURA=1` y permiso explícito. La verificación con la Registraduría es simulada (B-06).
 
-Entra con **Ingresar** usando la cuenta de demostración `andres.perez.45678@carpetacolombia.co` y la clave de `USUARIO_DEMO_CLAVE`. Las empresas de demostración de Premium (HU-10) entran igual: `tramites@premium.carpetacolombia.co` (con plan) y `servicios@basico.carpetacolombia.co` (sin plan).
+Entra con **Ingresar** usando la cuenta de demostración `andres.perez.45678@carpetacolombia.co` y la clave de `USUARIO_DEMO_CLAVE`. Las empresas de demostración de Premium (HU-10) entran igual: `tramites@premium.carpetacolombia.co` (con plan) y `servicios@basico.carpetacolombia.co` (sin plan). El analista del Estado (HU-12) es `analista@mintic.carpetacolombia.co` con la misma clave.
 
 Para trabajar en la SPA con recarga en caliente: `cd web && npm i && npm run dev` (puerto 5173, mismo emisor).
 
