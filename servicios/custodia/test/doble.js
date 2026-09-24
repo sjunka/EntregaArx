@@ -95,8 +95,23 @@ export function pasarelaFalsa(respuesta = 'Documento autenticado') {
   return { enviados, autenticar: async (d) => { enviados.push(d); return { autenticado: true, respuesta } } }
 }
 
-export async function conServicio(prueba, { documentos = repositorioEnMemoria(), almacen = almacenFalso(), almacenCertificados = almacenFalso('certificados'), pasarela = pasarelaFalsa(), ...resto } = {}) {
-  const app = crearApp({ documentos, almacen, almacenCertificados, pasarela, verificar: crearVerificador({ issuer: EMISOR, jwks }), ...resto })
+// MS-06 falso: `permitir(cedula, documentoId, tercero)` concede; `caido` simula que no responde.
+export function autorizacionesFalsas() {
+  const permitidas = new Set()
+  const a = {
+    consultas: [], caido: false,
+    permitir: (cedula, documentoId, tercero) => permitidas.add(`${cedula}|${documentoId}|${tercero}`),
+    decidir: async (d) => {
+      a.consultas.push(d)
+      if (a.caido) throw new Error('autorizaciones no responde')
+      return { permitida: permitidas.has(`${d.cedula}|${d.documentoId}|${d.tercero}`) }
+    },
+  }
+  return a
+}
+
+export async function conServicio(prueba, { documentos = repositorioEnMemoria(), almacen = almacenFalso(), almacenCertificados = almacenFalso('certificados'), pasarela = pasarelaFalsa(), autorizaciones = autorizacionesFalsas(), ...resto } = {}) {
+  const app = crearApp({ documentos, almacen, almacenCertificados, pasarela, autorizaciones, verificar: crearVerificador({ issuer: EMISOR, jwks }), ...resto })
   const srv = app.listen(0)
   const base = `http://127.0.0.1:${srv.address().port}`
   const pedir = async (ruta, { metodo = 'GET', cuerpo, cedula, cabeceras, servicio } = {}) => {
@@ -107,7 +122,7 @@ export async function conServicio(prueba, { documentos = repositorioEnMemoria(),
     })
     return { status: r.status, tipo: r.headers.get('content-type'), cuerpo: await r.json().catch(() => null) }
   }
-  try { await prueba({ pedir, documentos, almacen, almacenCertificados, pasarela, base }) } finally { srv.close() }
+  try { await prueba({ pedir, documentos, almacen, almacenCertificados, pasarela, autorizaciones, base }) } finally { srv.close() }
 }
 
 export const nuevoId = randomUUID

@@ -1,9 +1,10 @@
 openapi: 3.1.0
 info:
   title: Interoperabilidad (MS-07)
-  version: 0.1.0
+  version: 0.2.0
   description: >
-    Recibe los documentos que emiten las entidades (HU-05: RF-03.2, RF-03.3, RNF-05). Como no existe
+    Recibe los documentos que emiten las entidades (HU-05: RF-03.2, RF-03.3, RNF-05) y las peticiones de
+    documentos de las entidades al ciudadano (HU-07: RF-04.3, RF-04.4, RI-08). Como no existe
     contrato MinTIC para esta interfaz (B-01), el operador define uno propio y lo dice aquí.
     La entidad se autentica firmando: cada solicitud lleva un JWS compacto (RS256 o ES256) cuyo
     `iss` es el emisor y cuyo payload repite `idExterno`, `cedula`, `titulo` y `sha256`; se verifica con
@@ -71,6 +72,59 @@ paths:
         '409': { $ref: '#/components/responses/Problema' }
         '422': { $ref: '#/components/responses/Problema' }
         '503': { $ref: '#/components/responses/Problema' }
+  /api/peticiones:
+    post:
+      operationId: pedirDocumentos
+      summary: La entidad pide documentos a un ciudadano de este operador (RF-04.3)
+      description: >
+        La petición va firmada como las emisiones (ADR-0017): el JWS repite `idExterno`, `cedula`,
+        `proposito` y `pedidos` (la lista de títulos). Firma que no verifica o no cubre un campo: 401.
+        Entidad sin llave registrada: 403. Destinatario no afiliado a este operador: 422. Idempotente por
+        (entidad, idExterno): un reenvío devuelve la misma petición con 200. La petición queda pendiente
+        en MS-06 hasta que el ciudadano la responda; este servicio no la guarda.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Peticion' }
+      responses:
+        '201':
+          description: Petición registrada y pendiente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PeticionEstado' }
+        '200':
+          description: Reenvío idempotente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PeticionEstado' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '413': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
+  /api/peticiones/{id}:
+    get:
+      operationId: recogerDocumentos
+      summary: La entidad recoge lo que el ciudadano autorizó
+      description: >
+        La entidad se autentica con un JWS de vida corta (`{ iss, iat, exp }`, máximo 5 minutos) firmado con su
+        llave registrada, en `Authorization: Bearer`. Solo ve sus propias peticiones. Pendiente o rechazada:
+        `documentos` vacío y ningún detalle de la carpeta. Atendida: solo los documentos autorizados que siguen
+        vigentes, cada uno con una URL de lectura de 5 minutos que firma la custodia después de que MS-06 decide
+        (RI-08); cada consulta queda en la bitácora de accesos (MS-02). Una autorización revocada deja de entregarse.
+      security: [{ entidad: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Estado de la petición y documentos autorizados
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Recogida' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '404': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
   /salud:
     get:
       operationId: salud
@@ -86,7 +140,49 @@ paths:
                 properties:
                   estado: { type: string, const: ok }
 components:
+  securitySchemes:
+    entidad: { type: http, scheme: bearer, bearerFormat: JWS, description: 'JWS compacto RS256 o ES256 con { iss, iat, exp }, vida máxima de 5 minutos' }
   schemas:
+    Peticion:
+      type: object
+      required: [emisor, idExterno, cedula, proposito, documentos, firma]
+      properties:
+        emisor: { type: string, description: Entidad que pide; es el `iss` de la firma }
+        idExterno: { type: string, maxLength: 120, description: Identificador de la petición en la entidad }
+        cedula: { type: string, pattern: '^[0-9]{6,10}$' }
+        proposito: { type: string, maxLength: 200, description: Para qué se piden los documentos; el ciudadano lo lee antes de decidir }
+        documentos:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            type: object
+            required: [titulo]
+            properties:
+              titulo: { type: string, maxLength: 120, description: Qué documento se pide, en palabras }
+        firma: { type: string, description: 'JWS compacto cuyo payload es { iss, idExterno, cedula, proposito, pedidos: [títulos] }' }
+    PeticionEstado:
+      type: object
+      required: [id, estado]
+      properties:
+        id: { type: string, format: uuid }
+        estado: { type: string, enum: [pendiente] }
+    Recogida:
+      type: object
+      required: [id, estado, documentos]
+      properties:
+        id: { type: string, format: uuid }
+        estado: { type: string, enum: [pendiente, atendida, rechazada] }
+        documentos:
+          type: array
+          items:
+            type: object
+            required: [id, titulo, url, venceEn]
+            properties:
+              id: { type: string, format: uuid }
+              titulo: { type: string }
+              url: { type: string, format: uri, description: URL prefirmada de lectura de 5 minutos }
+              venceEn: { type: string, format: date-time }
     Emision:
       type: object
       required: [emisor, idExterno, cedula, titulo, tipo, tamano, sha256, firma]

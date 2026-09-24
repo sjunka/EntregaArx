@@ -21,6 +21,7 @@ docker compose up -d --build
 | Notificaciones (MS-09) | http://localhost:8087 |
 | Índice de carpeta (MS-05) | http://localhost:8091 |
 | Auditoría (MS-02) | http://localhost:8092 |
+| Autorizaciones (MS-06) | http://localhost:8093 |
 | Entidad emisora simulada | http://localhost:8088 |
 | MinIO (almacén S3) | http://localhost:9000 (consola 9001) |
 | Schema Registry | http://localhost:8085 |
@@ -41,13 +42,13 @@ npx @redocly/cli lint contratos/*.yaml   # contratos OpenAPI 3.1
 cd identidad && npm i && npm test     # emisor OIDC, node:test (igual en servicios/* y libs/eventos)
 # Los esquemas de eventos los valida libs/eventos/test/eventos.test.js. Los servicios usan @mcs/eventos: npm i en libs/eventos antes.
 # Las pruebas de MongoDB (servicios/indice, servicios/auditoria) corren con MONGO_URL_TEST=mongodb://localhost:27018 (docker run --rm -p 27018:27017 mongo:7).
-# Si agregas una base a infra/init-bases.sql, recrea el volumen: docker compose down -v
+# Si agregas una base a infra/init-bases.sql, recrea el volumen (docker compose down -v) o créala a mano: docker compose exec postgres psql -U postgres -c 'CREATE DATABASE autorizaciones'
 cd e2e && npm i && npx playwright install chromium && npm test   # flujos + axe, contra compose
 ```
 
 ## Identidad (ADR-0014)
 
-En local la identidad la emite `identidad/`, un emisor mínimo con las mismas rutas, claims y audiencias que el realm `carpeta` de Keycloak: token de acceso con `aud: [custodia, notificaciones]`, `azp: portal`, `preferred_username` y `cedula`; token de identidad con `aud: portal`. Solo admite Authorization Code con PKCE S256 y redirecciones registradas.
+En local la identidad la emite `identidad/`, un emisor mínimo con las mismas rutas, claims y audiencias que el realm `carpeta` de Keycloak: token de acceso con `aud: [custodia, notificaciones, indice, auditoria, autorizaciones]`, `azp: portal`, `preferred_username` y `cedula`; token de identidad con `aud: portal`. Solo admite Authorization Code con PKCE S256 y redirecciones registradas.
 
 También expone el subconjunto del Admin API de Keycloak que usa Afiliación para crear cuentas (`client_credentials` del cliente `afiliacion-admin`; `GET`, `POST`, `PUT` y `DELETE` en `/admin/realms/carpeta/users`). Los usuarios viven en su propia base Postgres.
 
@@ -58,7 +59,8 @@ Cambiar a Keycloak es solo cambiar variables de entorno:
 | `VITE_OIDC_AUTHORITY` | build de la SPA | `http://localhost:8081/realms/carpeta` |
 | `OIDC_ISSUER` | servicios | `http://localhost:8081/realms/carpeta` |
 | `OIDC_JWKS_URL` | servicios | `http://identidad:8080/realms/carpeta/protocol/openid-connect/certs` |
-| `KC_INTEROP_SECRETO` | identidad e interoperabilidad | cliente de servicio `interoperabilidad` (client credentials hacia la custodia) |
+| `KC_INTEROP_SECRETO` | identidad e interoperabilidad | cliente de servicio `interoperabilidad` (client credentials hacia la custodia y autorizaciones) |
+| `KC_CUSTODIA_SECRETO` | identidad y custodia | cliente de servicio `custodia` (client credentials hacia autorizaciones, RI-08) |
 | `KEYCLOAK_URL`, `KEYCLOAK_SECRETO` | afiliación | `http://identidad:8080`, `KC_AFILIACION_SECRETO` |
 
 ## Trazabilidad
@@ -72,7 +74,8 @@ Cambiar a Keycloak es solo cambiar variables de entorno:
 | HU-04 Autenticación de Temporal | RF-06.6 y RF-02.5 el titular pide a GovCarpeta autenticar su Temporal (403 a cualquier otro), RI-01 y RNF-21 a GovCarpeta solo viajan cédula, URL de lectura de 15 min y título (pasarela: 2 KB, https), Autenticado es una marca y el documento sigue Cargado y consumiendo cuota, escritura real solo con `GOVCARPETA_ESCRITURA=1` |
 | HU-05 Recepción de Certificado | RF-03.2 y RF-03.3 la entidad entrega el Certificado firmado (JWS) por un contrato propio en dos pasos y el archivo sube por URL prefirmada (ADR-0017), RF-05.1 aviso por el canal que el ciudadano elige, correo (Mailpit) o SMS simulado (ADR-0016), RNF-05 aviso en menos de 2 minutos, Kafka con CloudEvents 1.0, esquemas en Schema Registry y bandeja de salida (ADR-0018), el Certificado no consume cuota ni se elimina y deja Sustituido al Temporal equivalente |
 | HU-06 Consulta y descarga | RF-02.6 búsqueda por título, clase y fecha sobre el índice de carpeta (MS-05, MongoDB alimentado por eventos), RF-02.7 descarga por URL prefirmada de 60 s y cada acceso en la bitácora solo-append de MS-02, RNF-04 lista desde el índice, RNF-01 si el almacén no responde el documento sigue en la lista y se reintenta (ADR-0019) |
+| HU-07 Autorización documento a documento | RF-04.3 la entidad pide documentos con una petición firmada (JWS) que el ciudadano ve con entidad, documentos y propósito, RF-04.4 aprueba documento por documento o rechaza la petición completa y la entidad solo recibe lo autorizado, RF-04.5 autorización de 72 h que se revoca de inmediato, RI-08 MS-06 decide antes de que MS-04 firme la URL de lectura y sin decisión no se firma, cada lectura de un tercero queda en la auditoría (ADR-0020) |
 
 ## Eventos y entidades de prueba
 
-Los esquemas de los eventos están en `contratos/eventos/` y el trabajo `esquemas` de compose los registra en Schema Registry. `infra/entidad-simulada/` hace de universidad: `POST http://localhost:8088/emitir` con `{ "cedula": "...", "titulo": "..." }` firma, sube y confirma un Certificado (opciones de prueba: `firmaInvalida`, `alterarArchivo`, `sinSubir`, `sinConfirmar`, `idExterno`). Los correos que envía MS-09 se ven en Mailpit.
+Los esquemas de los eventos están en `contratos/eventos/` y el trabajo `esquemas` de compose los registra en Schema Registry. `infra/entidad-simulada/` hace de universidad: `POST http://localhost:8088/emitir` con `{ "cedula": "...", "titulo": "..." }` firma, sube y confirma un Certificado (opciones de prueba: `firmaInvalida`, `alterarArchivo`, `sinSubir`, `sinConfirmar`, `idExterno`). También pide documentos a un ciudadano con `POST /peticiones` (`{ cedula, proposito, documentos: [{ titulo }] }`) y recoge lo que autorizó con `POST /peticiones/consultar` (`{ id }`). Los correos que envía MS-09 se ven en Mailpit.

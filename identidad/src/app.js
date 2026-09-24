@@ -25,7 +25,7 @@ export async function crearLlave() {
   return { privada: privateKey, publica: publicKey, jwk: { ...(await exportJWK(publicKey)), kid: randomUUID(), alg: 'RS256', use: 'sig' } }
 }
 
-export const AUDIENCIAS_CIUDADANO = ['custodia', 'notificaciones', 'indice', 'auditoria']
+export const AUDIENCIAS_CIUDADANO = ['custodia', 'notificaciones', 'indice', 'auditoria', 'autorizaciones']
 const VIDA_TOKEN = 300 // accessTokenLifespan del realm
 const VIDA_CODIGO = 60
 const MAX_INTENTOS = 5 // HU-02: al quinto fallo la cuenta se bloquea
@@ -71,7 +71,7 @@ ${error ? `<p class="error" role="alert" id="error">${error}</p>` : ''}
 
 // usuarios: repositorio (src/usuarios.js) con porCuenta, crear, habilitar, borrar y el conteo de intentos (bloqueo, fallo, exito).
 // clientes: { clientId: [redirects, admite * final] }; administradores: { clientId: secreto } para el Admin API;
-// servicios: { clientId: { secreto, audiencia } } para client_credentials entre servicios (ADR-0006).
+// servicios: { clientId: { secreto, audiencia: texto o lista } } para client_credentials entre servicios (ADR-0006).
 export function crearApp({ emisor, llave, usuarios, clientes, administradores = {}, servicios = {}, origenes = [] }) {
   const app = express()
   const base = new URL(emisor).pathname.replace(/\/$/, '')

@@ -19,9 +19,11 @@ const aDocumento = (d) => ({
 
 const mb = (b) => Math.floor(b / 1048576)
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const EXTENSION = { 'application/pdf': '.pdf', 'image/jpeg': '.jpg', 'image/png': '.png' }
 const DESCARGABLES = ['cargado', 'sustituido', 'vigente']
 export const VIDA_DESCARGA = 60 // segundos: RNF-11, la URL prefirmada dura lo justo para abrirla
+export const VIDA_LECTURA_TERCERO = 300 // segundos: el tercero la usa apenas la recibe
 
 export function validarSolicitud({ titulo, tipo, tamano } = {}) {
   if (typeof titulo !== 'string' || !titulo.trim()) return [422, 'Falta el título', 'Escribe un nombre para el documento.']
@@ -46,9 +48,10 @@ export function validarCertificado(c = {}) {
 }
 
 // dependencias: documentos (repositorio, src/documentos.js), verificar(token) → claims,
-// almacen y almacenCertificados (urlCarga, urlLectura, cabecera, sha256, borrar), pasarela (autenticar).
+// almacen y almacenCertificados (urlCarga, urlLectura, cabecera, sha256, borrar), pasarela (autenticar),
+// autorizaciones (decidir: cliente de MS-06, RI-08).
 // Los Certificados van a su propio bucket: en el objetivo con retención bloqueada (ADR-0004).
-export function crearApp({ documentos, verificar, almacen, almacenCertificados, pasarela, origenes = [] }) {
+export function crearApp({ documentos, verificar, almacen, almacenCertificados, pasarela, autorizaciones, origenes = [] }) {
   const app = express()
   app.use((req, res, next) => {
     const o = req.headers.origin
@@ -73,6 +76,19 @@ export function crearApp({ documentos, verificar, almacen, almacenCertificados, 
       problema(res, 401, 'Sesión inválida o vencida', 'Vuelve a ingresar.')
     }
   })
+
+  // Entrega una URL de lectura de corta vida. Antes de firmar comprueba que el almacén responde; si no, no firma ni
+  // registra un acceso que no ocurrió. Devuelve la respuesta o [status, título, detalle] del problema.
+  async function entregar(d, { accion, actor, vida }) {
+    const alm = d.clase === 'certificado' ? almacenCertificados : almacen
+    const clave = `${d.titular}/${d.id}`
+    let cabecera
+    try { cabecera = await alm.cabecera(clave) } catch (e) { log('warn', 'almacén no disponible al firmar una lectura', { documento: d.id, detalle: e.message }) }
+    if (!cabecera) return [503, 'El almacén no responde', 'No pudimos preparar la descarga. Tu documento sigue en tu carpeta; intenta de nuevo en unos minutos.']
+    await documentos.registrarAcceso(d, { accion, actor })
+    const nombre = `${d.titulo.replace(/[\\/:*?"<>|\x00-\x1f]/g, ' ').trim()}${EXTENSION[d.tipo] ?? ''}`
+    return { url: await alm.urlLectura(clave, { vida, nombre }), venceEn: new Date(Date.now() + vida * 1000).toISOString(), titulo: d.titulo }
+  }
 
   // Servicio a servicio (client credentials): solo la interoperabilidad registra y verifica Certificados.
   const conTitular = (d) => ({ ...aDocumento(d), titular: d.titular }) // la interoperabilidad necesita a quién pertenece
@@ -113,6 +129,26 @@ export function crearApp({ documentos, verificar, almacen, almacenCertificados, 
       const activado = await documentos.activarCertificado(d.id)
       if (!activado) return res.json({ documento: conTitular(await documentos.buscar(d.id)), cambio: false }) // otra petición lo activó primero
       res.json({ documento: conTitular(activado.documento), cambio: true, sustituyeA: activado.sustituyeA })
+    } catch (e) { next(e) }
+  })
+
+  // RI-08: MS-06 decide antes de que MS-04 firme una URL de lectura para un tercero. Si MS-06 no responde, no se firma.
+  interno.post('/lecturas', async (req, res, next) => {
+    const { documentoId, tercero } = req.body ?? {}
+    if (!UUID.test(documentoId ?? '') || typeof tercero !== 'string' || !tercero.trim() || tercero.length > 254) {
+      return problema(res, 422, 'Lectura inválida', 'Se exigen el documento y el tercero que lo lee.')
+    }
+    try {
+      const d = await documentos.buscar(documentoId)
+      if (!d || !DESCARGABLES.includes(d.estado)) return problema(res, 404, 'Documento no encontrado')
+      let decision
+      try { decision = await autorizaciones.decidir({ cedula: d.titular, documentoId: d.id, tercero }) } catch (e) {
+        log('warn', 'autorizaciones no respondió; no se firma', { documento: d.id, detalle: e.message })
+        return problema(res, 503, 'Autorizaciones no disponible', 'No podemos confirmar el consentimiento del titular ahora. Reintenta en unos minutos.')
+      }
+      if (!decision.permitida) return problema(res, 403, 'Sin autorización vigente', 'El titular no autorizó a este tercero a leer el documento, o retiró su autorización.')
+      const r = await entregar(d, { accion: 'lectura-tercero', actor: { tipo: 'tercero', id: tercero }, vida: VIDA_LECTURA_TERCERO })
+      Array.isArray(r) ? problema(res, ...r) : res.json(r)
     } catch (e) { next(e) }
   })
   app.use('/interno', interno)
@@ -185,14 +221,8 @@ export function crearApp({ documentos, verificar, almacen, almacenCertificados, 
       const d = await propio(req, res)
       if (!d) return
       if (!DESCARGABLES.includes(d.estado)) return problema(res, 409, 'El documento no está disponible', 'Este documento no está guardado en tu carpeta.')
-      const alm = d.clase === 'certificado' ? almacenCertificados : almacen
-      const clave = `${d.titular}/${d.id}`
-      let cabecera
-      try { cabecera = await alm.cabecera(clave) } catch (e) { log('warn', 'almacén no disponible al descargar', { documento: d.id, detalle: e.message }) }
-      if (!cabecera) return problema(res, 503, 'El almacén no responde', 'No pudimos preparar la descarga. Tu documento sigue en tu carpeta; intenta de nuevo en unos minutos.')
-      await documentos.registrarAcceso(d, { accion: 'descarga', actor: { tipo: 'titular', id: d.titular } })
-      const url = await alm.urlLectura(clave, { vida: VIDA_DESCARGA, nombre: `${d.titulo.replace(/[\\/:*?"<>|\x00-\x1f]/g, ' ').trim()}${EXTENSION[d.tipo] ?? ''}` })
-      res.json({ url, venceEn: new Date(Date.now() + VIDA_DESCARGA * 1000).toISOString() })
+      const r = await entregar(d, { accion: 'descarga', actor: { tipo: 'titular', id: d.titular }, vida: VIDA_DESCARGA })
+      Array.isArray(r) ? problema(res, ...r) : res.json({ url: r.url, venceEn: r.venceEn })
     } catch (e) { next(e) }
   })
 

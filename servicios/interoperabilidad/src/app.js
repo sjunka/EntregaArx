@@ -1,13 +1,12 @@
 import express from 'express'
+import { ErrorAutorizaciones } from './autorizaciones.js'
 import { ErrorCustodia } from './custodia.js'
+import { log, problema } from './comun.js'
+import { rutasPeticiones } from './peticiones.js'
 
 const TIPOS = ['application/pdf', 'image/jpeg', 'image/png']
 const MAX_ARCHIVO = 10 * 1024 * 1024
 
-const problema = (res, status, title, detail, extra = {}) =>
-  res.status(status).type('application/problem+json').json({ type: 'about:blank', title, status, detail, ...extra })
-
-const log = (nivel, mensaje, extra = {}) => console.log(JSON.stringify({ nivel, mensaje, ...extra }))
 
 export function validarEmision(e = {}) {
   const texto = (v, max) => typeof v === 'string' && v.trim().length > 0 && v.length <= max
@@ -21,11 +20,12 @@ export function validarEmision(e = {}) {
   return null
 }
 
-// dependencias: custodia (registrar, verificar), pasarela (consultar), bandeja (encolar), firmas (conoce, verificar).
-export function crearApp({ custodia, pasarela, bandeja, firmas, operador = 'Mi Carpeta Segura' }) {
+// dependencias: custodia (registrar, verificar, leer), autorizaciones (crearPeticion, consultarPeticion), pasarela (consultar),
+// bandeja (encolar), firmas (conoce, verificar, verificarFirma, verificarToken).
+export function crearApp({ custodia, autorizaciones, pasarela, bandeja, firmas, operador = 'Mi Carpeta Segura' }) {
   const app = express()
   // RI-06: aquí solo entran metadatos y una firma; el archivo sube directo al almacén.
-  app.use(express.json({ limit: '4kb' }))
+  app.use(express.json({ limit: '8kb' }))
 
   app.get('/salud', (_req, res) => res.json({ estado: 'ok' }))
 
@@ -77,11 +77,14 @@ export function crearApp({ custodia, pasarela, bandeja, firmas, operador = 'Mi C
     }
   })
 
+  app.use('/api/peticiones', rutasPeticiones({ firmas, pasarela, autorizaciones, custodia, operador }))
+
   app.use((err, _req, res, _next) => {
     if (err.type === 'entity.parse.failed') return problema(res, 400, 'JSON inválido')
     if (err.type === 'entity.too.large') return problema(res, 413, 'Cuerpo demasiado grande', 'Este servicio solo recibe metadatos y la firma: el archivo se sube a la URL de carga.')
     log('error', err.message)
-    problema(res, err instanceof ErrorCustodia ? 503 : 500, err instanceof ErrorCustodia ? 'Custodia no disponible' : 'Error interno')
+    const cae = err instanceof ErrorCustodia || err instanceof ErrorAutorizaciones
+    problema(res, cae ? 503 : 500, cae ? 'Servicio del operador no disponible' : 'Error interno')
   })
   return app
 }

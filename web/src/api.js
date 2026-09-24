@@ -4,6 +4,7 @@ export const AFILIACION = import.meta.env.VITE_MCS_AFILIACION || 'http://localho
 const CUSTODIA = import.meta.env.VITE_MCS_CUSTODIA || 'http://localhost:8083'
 const NOTIFICACIONES = import.meta.env.VITE_MCS_NOTIFICACIONES || 'http://localhost:8087'
 const INDICE = import.meta.env.VITE_MCS_INDICE || 'http://localhost:8091'
+const AUTORIZACIONES = import.meta.env.VITE_MCS_AUTORIZACIONES || 'http://localhost:8093'
 
 export class ErrorServicio extends Error {
   constructor(status, titulo, detalle) {
@@ -64,6 +65,13 @@ export async function subir({ titulo, archivo }, alAvanzar) {
 }
 
 export const autenticar = (id) => conSesion(`/documentos/${id}/autenticacion`, { method: 'POST' })
+
+// Peticiones de terceros y autorización documento a documento (MS-06, HU-07).
+export const peticiones = () => conSesion('/peticiones', {}, AUTORIZACIONES)
+export const autorizar = (peticionId, documentos) =>
+  conSesion('/autorizaciones', { method: 'POST', body: JSON.stringify({ peticionId, documentos }) }, AUTORIZACIONES)
+export const rechazar = (id) => conSesion(`/peticiones/${id}/rechazo`, { method: 'POST', body: '{}' }, AUTORIZACIONES)
+export const revocar = (id) => conSesion(`/autorizaciones/${id}`, { method: 'DELETE' }, AUTORIZACIONES)
 
 export const preferencias = () => conSesion('/preferencias', {}, NOTIFICACIONES)
 export const guardarPreferencias = (canales) =>

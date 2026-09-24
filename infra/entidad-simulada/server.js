@@ -1,7 +1,8 @@
 // Entidad emisora simulada (una «universidad») para compose y e2e, como el doble de GovCarpeta: HU-05 no tiene un
 // emisor real (B-01). Genera su par de llaves al arrancar, publica la pública en /.well-known/jwks.json (que MS-07
 // tiene registrada como directorio de emisores) y, con POST /emitir, hace el recorrido completo de una entidad:
-// anuncia el documento firmado, sube el archivo a la URL prefirmada y confirma. Nunca guarda llaves en el repo.
+// anuncia el documento firmado, sube el archivo a la URL prefirmada y confirma (HU-05); con POST /peticiones pide documentos
+// a un ciudadano y con POST /peticiones/consultar recoge los que autorizó (HU-07). Nunca guarda llaves en el repo.
 import { createHash, randomUUID } from 'node:crypto'
 import { createServer, request } from 'node:http'
 import { CompactSign, exportJWK, generateKeyPair } from 'jose'
@@ -51,6 +52,20 @@ async function emitir({ cedula, titulo = 'Diploma de ingeniería', idExterno = r
   return resultado
 }
 
+// HU-07: la entidad pide documentos al ciudadano. Opciones de prueba: firmaInvalida (firma con otra llave), idExterno.
+async function pedir({ cedula, proposito = 'Verificar tus estudios para una beca', documentos = [{ titulo: 'Diploma' }], idExterno = randomUUID(), firmaInvalida }) {
+  const peticion = { emisor: EMISOR, idExterno, cedula, proposito, documentos }
+  peticion.firma = await firmar({ iss: EMISOR, idExterno, cedula, proposito, pedidos: documentos.map((d) => d.titulo) }, firmaInvalida ? ajena.privateKey : propia.privateKey)
+  return { idExterno, ...(await json(`${INTEROP}/api/peticiones`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(peticion) })) }
+}
+
+// Consulta la petición con un JWS de 2 minutos firmado por la entidad (`sinFirma`: sin credencial; `firmaInvalida`: otra llave).
+async function consultar({ id, sinFirma, firmaInvalida }) {
+  const t = Math.floor(Date.now() / 1000)
+  const bearer = sinFirma ? null : await firmar({ iss: EMISOR, iat: t, exp: t + 120 }, firmaInvalida ? ajena.privateKey : propia.privateKey)
+  return json(`${INTEROP}/api/peticiones/${id}`, { headers: bearer ? { authorization: `Bearer ${bearer}` } : {} })
+}
+
 createServer(async (req, res) => {
   const responder = (status, cuerpo) => res.writeHead(status, { 'content-type': 'application/json' }).end(JSON.stringify(cuerpo))
   try {
@@ -60,6 +75,12 @@ createServer(async (req, res) => {
       let cuerpo = ''
       for await (const c of req) cuerpo += c
       return responder(200, await emitir(JSON.parse(cuerpo || '{}')))
+    }
+    if (req.method === 'POST' && (req.url === '/peticiones' || req.url === '/peticiones/consultar')) {
+      let cuerpo = ''
+      for await (const c of req) cuerpo += c
+      const datos = JSON.parse(cuerpo || '{}')
+      return responder(200, await (req.url === '/peticiones' ? pedir(datos) : consultar(datos)))
     }
     responder(404, { error: 'no existe' })
   } catch (e) {

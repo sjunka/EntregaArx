@@ -1,0 +1,17 @@
+{
+  "name": "mcs-autorizaciones",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "migrar": "node src/server.js --migrar",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "jose": "^6.2.12",
+    "pg": "^8.23.0"
+  },
+  "engines": { "node": ">=22" }
+}

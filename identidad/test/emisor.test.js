@@ -54,7 +54,7 @@ async function conEmisor(prueba) {
     usuarios,
     clientes: { portal: [`${REDIRECT}*`] },
     administradores: { 'afiliacion-admin': SECRETO_ADMIN },
-    servicios: { interoperabilidad: { secreto: SECRETO_SERVICIO, audiencia: 'custodia' } },
+    servicios: { interoperabilidad: { secreto: SECRETO_SERVICIO, audiencia: ['custodia', 'autorizaciones'] }, custodia: { secreto: 'secreto-de-custodia', audiencia: 'autorizaciones' } },
     origenes: ['http://localhost:4173'],
   })
   const srv = app.listen(0)
@@ -207,7 +207,7 @@ test('la cuenta no distingue mayúsculas, como en Keycloak', () => conEmisor(asy
 test('el token de acceso del ciudadano sirve a los servicios que lo atienden', () => conEmisor(async (base) => {
   const code = new URL((await autorizar(base)).headers.get('location')).searchParams.get('code')
   const { access_token } = await (await canjear(base, code)).json()
-  assert.deepEqual(decodeJwt(access_token).aud, ['custodia', 'notificaciones', 'indice', 'auditoria'])
+  assert.deepEqual(decodeJwt(access_token).aud, ['custodia', 'notificaciones', 'indice', 'auditoria', 'autorizaciones'])
 }))
 
 test('client_credentials de un servicio: token con su audiencia y sin identidad de ciudadano', () => conEmisor(async (base) => {
@@ -222,6 +222,9 @@ test('client_credentials de un servicio: token con su audiencia y sin identidad 
   assert.equal(payload.azp, 'interoperabilidad')
   assert.equal(payload.cedula, undefined)
   assert.equal(payload.preferred_username, undefined)
+  assert.deepEqual(decodeJwt((await (await pedir(SECRETO_SERVICIO)).json()).access_token).aud, ['custodia', 'autorizaciones'], 'la interoperabilidad también llama a autorizaciones')
+  const custodia = decodeJwt((await (await pedir('secreto-de-custodia', 'custodia')).json()).access_token)
+  assert.deepEqual([custodia.azp, custodia.aud], ['custodia', 'autorizaciones'])
 }))
 
 // Admin API: el mismo subconjunto del de Keycloak que usa Afiliación para crear cuentas (HU-01).

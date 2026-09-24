@@ -2,6 +2,7 @@ import pg from 'pg'
 import { createRemoteJWKSet } from 'jose'
 import { Kafka, Partitioners } from 'kafkajs'
 import { crearApp } from './app.js'
+import { crearAutorizaciones } from './autorizaciones.js'
 import { crearCustodia, crearProveedorToken } from './custodia.js'
 import { crearBandeja, crearPublicador, crearRegistro, iniciarRelevo } from '@mcs/eventos'
 import { crearVerificadorFirmas } from './firma.js'
@@ -28,13 +29,12 @@ if (process.argv.includes('--migrar')) {
   await productor.connect()
   iniciarRelevo({ bandeja, log, publicar: crearPublicador({ productor, registro: crearRegistro(env.SCHEMA_REGISTRY_URL), urlRegistro: env.SCHEMA_REGISTRY_URL }) })
 
+  const token = crearProveedorToken({ url: env.OIDC_INTERNO_URL, clientId: 'interoperabilidad', secreto: env.KC_INTEROP_SECRETO })
   const app = crearApp({
     firmas: crearVerificadorFirmas({ emisores }),
     pasarela: crearPasarela({ url: env.PASARELA_URL }),
-    custodia: crearCustodia({
-      url: env.CUSTODIA_URL,
-      token: crearProveedorToken({ url: env.OIDC_INTERNO_URL, clientId: 'interoperabilidad', secreto: env.KC_INTEROP_SECRETO }),
-    }),
+    custodia: crearCustodia({ url: env.CUSTODIA_URL, token }),
+    autorizaciones: crearAutorizaciones({ url: env.AUTORIZACIONES_URL, token }),
     bandeja,
     operador: env.OPERADOR_NOMBRE ?? 'Mi Carpeta Segura',
   })

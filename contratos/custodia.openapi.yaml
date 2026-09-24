@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
   title: Custodia documental (MS-04)
-  version: 0.5.0
+  version: 0.6.0
   description: >
     Documentos del ciudadano afiliado. Realiza HU-02 (RF-09.1, RNF-10, RNF-11) y HU-03
-    (RF-02.2, RF-02.3, RNF-24, RI-06) y HU-04 (RF-06.6, RF-02.5, RI-01, RNF-21) y HU-05 (RF-03.2, RF-03.3) y HU-06 (RF-02.7, RNF-01): todas las rutas
+    (RF-02.2, RF-02.3, RNF-24, RI-06) y HU-04 (RF-06.6, RF-02.5, RI-01, RNF-21) y HU-05 (RF-03.2, RF-03.3) y HU-06 (RF-02.7, RNF-01) y HU-07 (RI-08): todas las rutas
     salvo /salud exigen un Bearer JWT del emisor OIDC con audiencia `custodia` y `azp: portal`;
     sin firma válida, de otro emisor, de otra audiencia o vencido responde 401. Cada ciudadano
     solo ve su Carpeta. El binario nunca pasa por este servicio: sube directo al almacén por una
@@ -214,6 +214,44 @@ paths:
         '403': { $ref: '#/components/responses/Problema' }
         '404': { $ref: '#/components/responses/Problema' }
         '409': { $ref: '#/components/responses/Problema' }
+  /interno/lecturas:
+    post:
+      operationId: leerParaTercero
+      summary: URL de lectura de 5 minutos para un tercero autorizado (RI-08)
+      description: >
+        Solo la interoperabilidad. Antes de firmar, la custodia pregunta a MS-06 si el titular tiene una
+        autorización vigente para ese documento y ese tercero (`entidad:{id}` o `correo:{dirección}`). Sin
+        autorización, revocada o vencida: 403 y no se firma nada. Si MS-06 no responde: 503, falla cerrada.
+        Cada URL entregada publica `acceso.registrado` con actor tercero. Un documento que no está en la
+        Carpeta responde 404 sin consultar a MS-06.
+      security: [{ servicio: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [documentoId, tercero]
+              properties:
+                documentoId: { type: string, format: uuid }
+                tercero: { type: string, maxLength: 254 }
+      responses:
+        '200':
+          description: URL de lectura
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, venceEn, titulo]
+                properties:
+                  url: { type: string, format: uri }
+                  venceEn: { type: string, format: date-time }
+                  titulo: { type: string }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '404': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
   /cuota:
     get:
       operationId: consultarCuota

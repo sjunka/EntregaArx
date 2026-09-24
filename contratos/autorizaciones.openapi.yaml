@@ -1,0 +1,286 @@
+openapi: 3.1.0
+info:
+  title: Autorizaciones (MS-06)
+  version: 0.1.0
+  description: >
+    Decide si un documento puede salir hacia un tercero según el consentimiento del titular (HU-07: RF-04.3,
+    RF-04.4, RF-04.5, RI-08). Guarda las peticiones de las entidades y las autorizaciones del ciudadano; no
+    guarda documentos ni sus títulos (RD-11). La custodia (MS-04) le pregunta antes de firmar cualquier URL de
+    lectura para un tercero y, si MS-06 no responde, no firma. Las rutas del ciudadano exigen un Bearer JWT del
+    emisor OIDC con audiencia `autorizaciones` y `azp: portal`; las `/interno/*` exigen un token de servicio
+    (client credentials) con el `azp` que cada ruta indica y un ciudadano recibe 403. Vigencia por defecto: 72 h
+    (`AUTORIZACION_HORAS`, ADR-0020).
+servers:
+  - url: http://localhost:8093
+security:
+  - bearer: []
+paths:
+  /peticiones:
+    get:
+      operationId: listarPeticiones
+      summary: Peticiones que recibió el titular, de la más reciente a la más antigua (hasta 50)
+      responses:
+        '200':
+          description: Peticiones con la entidad, los documentos que pide, el propósito y lo que ya autorizó
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Peticion' }
+        '401': { $ref: '#/components/responses/Problema' }
+  /peticiones/{id}/rechazo:
+    post:
+      operationId: rechazarPeticion
+      summary: Rechaza la petición completa
+      description: La entidad solo se entera del rechazo, sin detalle de la carpeta. Una petición ya respondida responde 409.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: Petición rechazada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Peticion' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '404': { $ref: '#/components/responses/Problema' }
+        '409': { $ref: '#/components/responses/Problema' }
+  /autorizaciones:
+    get:
+      operationId: listarAutorizaciones
+      summary: Autorizaciones vigentes del titular
+      responses:
+        '200':
+          description: Sin revocar y sin vencer
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Autorizacion' }
+        '401': { $ref: '#/components/responses/Problema' }
+    post:
+      operationId: autorizarDocumentos
+      summary: Autoriza documento por documento lo que la petición pide
+      description: >
+        El titular elige los documentos; no se puede autorizar más documentos de los que la entidad pidió ni
+        repetir uno. La petición pasa a atendida. Una petición ya respondida responde 409; la de otro ciudadano, 404.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [peticionId, documentos]
+              properties:
+                peticionId: { type: string, format: uuid }
+                documentos:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  uniqueItems: true
+                  items: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Autorizaciones concedidas, una por documento
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [autorizaciones]
+                properties:
+                  autorizaciones:
+                    type: array
+                    items: { $ref: '#/components/schemas/Autorizacion' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '404': { $ref: '#/components/responses/Problema' }
+        '409': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+  /autorizaciones/{id}:
+    delete:
+      operationId: revocarAutorizacion
+      summary: Revoca una autorización
+      description: Surte efecto de inmediato porque la custodia pregunta aquí antes de firmar cada lectura. Idempotente. La de otro ciudadano responde 404.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '204': { description: Revocada }
+        '401': { $ref: '#/components/responses/Problema' }
+        '404': { $ref: '#/components/responses/Problema' }
+  /interno/peticiones:
+    post:
+      operationId: crearPeticion
+      summary: La interoperabilidad registra la petición de una entidad
+      description: Solo `azp` interoperabilidad. Idempotente por (entidad, idExterno).
+      security: [{ servicio: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entidad, idExterno, cedula, proposito, pedidos]
+              properties:
+                entidad: { type: string }
+                idExterno: { type: string }
+                cedula: { type: string, pattern: '^[0-9]{6,10}$' }
+                proposito: { type: string, maxLength: 200 }
+                pedidos:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items:
+                    type: object
+                    required: [titulo]
+                    properties: { titulo: { type: string, maxLength: 120 } }
+      responses:
+        '201':
+          description: Registrada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PeticionEstado' }
+        '200':
+          description: Ya existía
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PeticionEstado' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+  /interno/peticiones/{id}:
+    get:
+      operationId: consultarPeticionDeEntidad
+      summary: Estado de la petición y autorizaciones vigentes, para la entidad que la hizo
+      security: [{ servicio: [] }]
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: entidad, in: query, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Solo el estado y lo autorizado que sigue vigente
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, estado, autorizaciones]
+                properties:
+                  id: { type: string, format: uuid }
+                  estado: { type: string, enum: [pendiente, atendida, rechazada] }
+                  autorizaciones:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, documentoId, venceEn]
+                      properties:
+                        id: { type: string, format: uuid }
+                        documentoId: { type: string, format: uuid }
+                        venceEn: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '404': { $ref: '#/components/responses/Problema' }
+  /interno/decisiones:
+    post:
+      operationId: decidir
+      summary: La custodia pregunta si puede firmar una lectura (RI-08)
+      description: >
+        Solo `azp` custodia. Permitida solo si hay una autorización sin revocar y sin vencer para ese titular,
+        ese documento y ese tercero (`entidad:{id}` o `correo:{dirección}`).
+      security: [{ servicio: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cedula, documentoId, tercero]
+              properties:
+                cedula: { type: string, pattern: '^[0-9]{6,10}$' }
+                documentoId: { type: string, format: uuid }
+                tercero: { type: string, maxLength: 254 }
+      responses:
+        '200':
+          description: Decisión
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [permitida]
+                properties:
+                  permitida: { type: boolean }
+                  autorizacionId: { type: string, format: uuid }
+                  venceEn: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+  /salud:
+    get:
+      operationId: salud
+      security: []
+      summary: Chequeo de salud
+      responses:
+        '200':
+          description: Servicio sano
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [estado]
+                properties:
+                  estado: { type: string, const: ok }
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer, bearerFormat: JWT }
+    servicio: { type: http, scheme: bearer, bearerFormat: JWT, description: Token client credentials de un servicio del operador }
+  schemas:
+    PeticionEstado:
+      type: object
+      required: [id, estado]
+      properties:
+        id: { type: string, format: uuid }
+        estado: { type: string, enum: [pendiente, atendida, rechazada] }
+    Peticion:
+      type: object
+      required: [id, entidad, proposito, pedidos, estado, creado, autorizaciones]
+      properties:
+        id: { type: string, format: uuid }
+        entidad: { type: string }
+        proposito: { type: string }
+        pedidos:
+          type: array
+          items:
+            type: object
+            required: [titulo]
+            properties: { titulo: { type: string } }
+        estado: { type: string, enum: [pendiente, atendida, rechazada] }
+        creado: { type: string, format: date-time }
+        autorizaciones:
+          type: array
+          items:
+            type: object
+            required: [id, documentoId, venceEn, revocada]
+            properties:
+              id: { type: string, format: uuid }
+              documentoId: { type: string, format: uuid }
+              venceEn: { type: string, format: date-time }
+              revocada: { type: boolean }
+    Autorizacion:
+      type: object
+      required: [id, tercero, documentoId, concedidaEn, venceEn]
+      properties:
+        id: { type: string, format: uuid }
+        peticionId: { type: string, format: uuid }
+        tercero: { type: string, description: 'entidad:{id} o correo:{dirección}' }
+        documentoId: { type: string, format: uuid }
+        concedidaEn: { type: string, format: date-time }
+        venceEn: { type: string, format: date-time }
+  responses:
+    Problema:
+      description: Error RFC 9457
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            required: [type, title, status]
+            properties:
+              type: { type: string }
+              title: { type: string }
+              status: { type: integer }
+              detail: { type: string }

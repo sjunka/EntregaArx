@@ -3,6 +3,7 @@ import { createRemoteJWKSet } from 'jose'
 import { Kafka, Partitioners } from 'kafkajs'
 import { crearBandeja, crearPublicador, crearRegistro, iniciarRelevo } from '@mcs/eventos'
 import { crearApp } from './app.js'
+import { crearAutorizaciones, crearProveedorToken } from './autorizaciones.js'
 import { crearVerificador } from './auth.js'
 import { crearAlmacen } from './almacen.js'
 import { crearPasarela } from './pasarela.js'
@@ -34,6 +35,10 @@ if (process.argv.includes('--migrar')) {
     almacen: almacenDe(env.S3_BUCKET),
     almacenCertificados: almacenDe(env.S3_BUCKET_CERTIFICADOS),
     pasarela: crearPasarela({ url: env.PASARELA_URL }),
+    autorizaciones: crearAutorizaciones({
+      url: env.AUTORIZACIONES_URL,
+      token: crearProveedorToken({ url: env.OIDC_INTERNO_URL, clientId: 'custodia', secreto: env.KC_CUSTODIA_SECRETO }),
+    }),
     verificar: crearVerificador({ issuer: env.OIDC_ISSUER, jwks: createRemoteJWKSet(new URL(env.OIDC_JWKS_URL)) }),
     origenes: (env.ORIGENES ?? '').split(',').filter(Boolean),
   })

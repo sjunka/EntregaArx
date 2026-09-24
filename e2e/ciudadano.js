@@ -35,3 +35,13 @@ export const tokenDe = (page) => page.evaluate(() => {
 })
 
 export const conToken = (token) => ({ authorization: `Bearer ${token}` })
+
+export const AUTORIZACIONES = process.env.AUTORIZACIONES_URL ?? 'http://localhost:8093'
+export const IDENTIDAD = process.env.IDENTIDAD_URL ?? 'http://localhost:8081/realms/carpeta'
+
+// Token de servicio (client credentials) de un cliente de compose, para probar rutas /interno con el cliente equivocado o el correcto.
+export async function tokenServicio(request, clienteId, secreto) {
+  const r = await request.post(`${IDENTIDAD}/protocol/openid-connect/token`, { form: { grant_type: 'client_credentials', client_id: clienteId, client_secret: secreto } })
+  expect(r.status()).toBe(200)
+  return (await r.json()).access_token
+}
