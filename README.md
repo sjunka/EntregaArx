@@ -31,7 +31,7 @@ docker compose up -d --build
 | Pasarela de GovCarpeta (MS-08) | http://localhost:8084 |
 | GovCarpeta simulado | http://localhost:8090 |
 
-Compose nunca escribe en el GovCarpeta real: la pasarela apunta a un doble local (`infra/govcarpeta-stub/`). La cédula `1000000001` figura afiliada a otro operador, para probar el rechazo. Para usar el real se define `GOVCARPETA_URL`, y escribir en él exige además `GOVCARPETA_ESCRITURA=1` y permiso explícito. La verificación con la Registraduría es simulada (B-06).
+Compose nunca escribe en el GovCarpeta real: la pasarela apunta a un doble local (`infra/govcarpeta-stub/`). La cédula `1000000001` figura afiliada a otro operador, para probar el rechazo. Para usar el real se define `GOVCARPETA_URL`, y escribir en él exige además `GOVCARPETA_ESCRITURA=1` y permiso explícito. La verificación con la Registraduría es simulada (B-06). El despliegue en GCP sí escribe en el GovCarpeta real (ADR-0025).
 
 Entra con **Ingresar** usando la cuenta de demostración `andres.perez.45678@carpetacolombia.co` y la clave de `USUARIO_DEMO_CLAVE`. Las empresas de demostración de Premium (HU-10) entran igual: `tramites@premium.carpetacolombia.co` (con plan) y `servicios@basico.carpetacolombia.co` (sin plan). El analista del Estado (HU-12) es `analista@mintic.carpetacolombia.co` con la misma clave.
 

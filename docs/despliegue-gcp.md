@@ -24,7 +24,7 @@ La SPA se publica en GitHub Pages (AD-11) con `.github/workflows/pages.yml`.
 5. Correr el smoke (cabecera de `e2e/smoke-gcp.spec.js`).
 6. Al terminar: `terraform -chdir=infra/terraform destroy`.
 
-`GOVCARPETA_ESCRITURA` queda en `1` por permiso explícito (24 de septiembre de 2026, entrega 3): la pasarela registra ciudadanos y autentica documentos en el GovCarpeta real. La Registraduría sigue simulada (B-06).
+`GOVCARPETA_ESCRITURA` queda en `1` por permiso explícito (24 de septiembre de 2026, entrega 3, ADR-0025): la pasarela registra ciudadanos y autentica documentos en el GovCarpeta real. La Registraduría sigue simulada (B-06).
 
 ## Costo estimado (us-east1, referencia de lista, no medida)
 
