@@ -153,3 +153,12 @@ test('la interoperabilidad concede al correo destinatario las autorizaciones de 
   assert.equal((await conceder({ cedula: CEDULA, tercero: 'correo:a@b.co', documentos: [D1] }, 'custodia')).status, 403, 'la custodia decide, no concede')
   assert.equal((await pedir('/interno/autorizaciones', { metodo: 'POST', cuerpo: { cedula: CEDULA, tercero: 'correo:a@b.co', documentos: [D1] } })).status, 403, 'un ciudadano no concede por esta ruta')
 }))
+
+test('Premium (MS-11) crea y consulta las peticiones de su empresa como una entidad; la custodia no', () => conServicio(async ({ pedir }) => {
+  const r = await pedir('/interno/peticiones', { metodo: 'POST', cuerpo: { ...PETICION, entidad: 'tramites-premium' }, servicio: 'premium' })
+  assert.equal(r.status, 201)
+  assert.equal((await pedir(`/interno/peticiones/${r.cuerpo.id}?entidad=tramites-premium`, { servicio: 'premium' })).cuerpo.estado, 'pendiente')
+  assert.equal((await pedir(`/interno/peticiones/${r.cuerpo.id}?entidad=otra`, { servicio: 'premium' })).status, 404)
+  assert.equal((await pedir('/interno/peticiones', { metodo: 'POST', cuerpo: PETICION, servicio: 'custodia' })).status, 403)
+  assert.equal((await pedir('/interno/decisiones', { metodo: 'POST', cuerpo: { cedula: CEDULA, documentoId: D1, tercero: 'entidad:tramites-premium' }, servicio: 'premium' })).status, 403, 'Premium no decide')
+}))

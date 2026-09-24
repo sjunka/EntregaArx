@@ -53,12 +53,12 @@ export function crearApp({ repo, verificar, origenes = [], ahora = () => new Dat
     }
   })
 
-  // Servicio a servicio (client credentials): la interoperabilidad crea peticiones y la custodia pide la decisión.
+  // Servicio a servicio (client credentials): la interoperabilidad y Premium (HU-10) crean peticiones y la custodia pide la decisión.
   const interno = express.Router()
-  const solo = (azp) => (req, res, next) => (req.claims.azp === azp ? next() : problema(res, 403, 'Solo para servicios del operador'))
+  const solo = (...azp) => (req, res, next) => (azp.includes(req.claims.azp) ? next() : problema(res, 403, 'Solo para servicios del operador'))
   const venceEn = () => new Date(ahora().getTime() + horas * 3_600_000)
 
-  interno.post('/peticiones', solo('interoperabilidad'), async (req, res, next) => {
+  interno.post('/peticiones', solo('interoperabilidad', 'premium'), async (req, res, next) => {
     const invalido = validarPeticion(req.body)
     if (invalido) return problema(res, 422, 'Petición inválida', invalido)
     try {
@@ -72,7 +72,7 @@ export function crearApp({ repo, verificar, origenes = [], ahora = () => new Dat
   })
 
   // La entidad solo ve el estado y lo autorizado que sigue vigente; nada más de la carpeta.
-  interno.get('/peticiones/:id', solo('interoperabilidad'), async (req, res, next) => {
+  interno.get('/peticiones/:id', solo('interoperabilidad', 'premium'), async (req, res, next) => {
     try {
       const p = esUuid(req.params.id) ? await repo.peticion(req.params.id) : null
       if (!p || p.entidad !== req.query.entidad) return problema(res, 404, 'Petición no encontrada')

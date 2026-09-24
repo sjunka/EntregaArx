@@ -22,6 +22,7 @@ docker compose up -d --build
 | Índice de carpeta (MS-05) | http://localhost:8091 |
 | Auditoría (MS-02) | http://localhost:8092 |
 | Autorizaciones (MS-06) | http://localhost:8093 |
+| Premium (MS-11) | http://localhost:8095 |
 | Entidad emisora simulada | http://localhost:8088 |
 | MinIO (almacén S3) | http://localhost:9000 (consola 9001) |
 | Schema Registry | http://localhost:8085 |
@@ -31,7 +32,7 @@ docker compose up -d --build
 
 Compose nunca escribe en el GovCarpeta real: la pasarela apunta a un doble local (`infra/govcarpeta-stub/`). La cédula `1000000001` figura afiliada a otro operador, para probar el rechazo. Para usar el real se define `GOVCARPETA_URL`, y escribir en él exige además `GOVCARPETA_ESCRITURA=1` y permiso explícito. La verificación con la Registraduría es simulada (B-06).
 
-Entra con **Ingresar** usando la cuenta de demostración `andres.perez.45678@carpetacolombia.co` y la clave de `USUARIO_DEMO_CLAVE`.
+Entra con **Ingresar** usando la cuenta de demostración `andres.perez.45678@carpetacolombia.co` y la clave de `USUARIO_DEMO_CLAVE`. Las empresas de demostración de Premium (HU-10) entran igual: `tramites@premium.carpetacolombia.co` (con plan) y `servicios@basico.carpetacolombia.co` (sin plan).
 
 Para trabajar en la SPA con recarga en caliente: `cd web && npm i && npm run dev` (puerto 5173, mismo emisor).
 
@@ -42,13 +43,13 @@ npx @redocly/cli lint contratos/*.yaml   # contratos OpenAPI 3.1
 cd identidad && npm i && npm test     # emisor OIDC, node:test (igual en servicios/* y libs/eventos)
 # Los esquemas de eventos los valida libs/eventos/test/eventos.test.js. Los servicios usan @mcs/eventos: npm i en libs/eventos antes.
 # Las pruebas de MongoDB (servicios/indice, servicios/auditoria) corren con MONGO_URL_TEST=mongodb://localhost:27018 (docker run --rm -p 27018:27017 mongo:7).
-# Si agregas una base a infra/init-bases.sql, recrea el volumen (docker compose down -v) o créala a mano: docker compose exec postgres psql -U postgres -c 'CREATE DATABASE autorizaciones'
+# Si agregas una base a infra/init-bases.sql, recrea el volumen (docker compose down -v) o créala a mano: docker compose exec postgres psql -U postgres -c 'CREATE DATABASE premium'
 cd e2e && npm i && npx playwright install chromium && npm test   # flujos + axe, contra compose
 ```
 
 ## Identidad (ADR-0014)
 
-En local la identidad la emite `identidad/`, un emisor mínimo con las mismas rutas, claims y audiencias que el realm `carpeta` de Keycloak: token de acceso con `aud: [custodia, notificaciones, indice, auditoria, autorizaciones]`, `azp: portal`, `preferred_username` y `cedula`; token de identidad con `aud: portal`. Solo admite Authorization Code con PKCE S256 y redirecciones registradas.
+En local la identidad la emite `identidad/`, un emisor mínimo con las mismas rutas, claims y audiencias que el realm `carpeta` de Keycloak: token de acceso con `aud: [custodia, notificaciones, indice, auditoria, autorizaciones, interoperabilidad]`, `azp: portal`, `preferred_username` y `cedula`; token de identidad con `aud: portal`. Solo admite Authorization Code con PKCE S256 y redirecciones registradas.
 
 También expone el subconjunto del Admin API de Keycloak que usa Afiliación para crear cuentas (`client_credentials` del cliente `afiliacion-admin`; `GET`, `POST`, `PUT` y `DELETE` en `/admin/realms/carpeta/users`). Los usuarios viven en su propia base Postgres.
 

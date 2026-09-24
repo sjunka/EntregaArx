@@ -5,6 +5,7 @@ const CUSTODIA = import.meta.env.VITE_MCS_CUSTODIA || 'http://localhost:8083'
 const NOTIFICACIONES = import.meta.env.VITE_MCS_NOTIFICACIONES || 'http://localhost:8087'
 const INDICE = import.meta.env.VITE_MCS_INDICE || 'http://localhost:8091'
 const AUTORIZACIONES = import.meta.env.VITE_MCS_AUTORIZACIONES || 'http://localhost:8093'
+const PREMIUM = import.meta.env.VITE_MCS_PREMIUM || 'http://localhost:8095'
 const INTEROPERABILIDAD = import.meta.env.VITE_MCS_INTEROPERABILIDAD || 'http://localhost:8086'
 
 export class ErrorServicio extends Error {
@@ -90,3 +91,11 @@ export const preferencias = () => conSesion('/preferencias', {}, NOTIFICACIONES)
 export const guardarPreferencias = (canales) =>
   conSesion('/preferencias', { method: 'PUT', body: JSON.stringify({ canales }) }, NOTIFICACIONES)
 export const avisos = () => conSesion('/notificaciones', {}, NOTIFICACIONES)
+
+// Consola de la empresa Premium (MS-11, HU-10). La sesión de una empresa lleva el claim `empresa` y solo sirve aquí.
+export const perfilEmpresa = () => conSesion('/perfil', {}, PREMIUM)
+export const catalogo = () => conSesion('/catalogo', {}, PREMIUM)
+export const usoEmpresa = () => conSesion('/uso', {}, PREMIUM)
+export const casos = () => conSesion('/casos', {}, PREMIUM)
+export const abrirCaso = (asunto) => conSesion('/casos', { method: 'POST', body: JSON.stringify({ asunto }) }, PREMIUM)
+export const pedirDocumentos = (casoId, datos) => conSesion(`/casos/${casoId}/peticiones`, { method: 'POST', body: JSON.stringify(datos) }, PREMIUM)

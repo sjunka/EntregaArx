@@ -12,6 +12,7 @@ const USUARIO = {
   cuenta: 'andres.perez.12345@carpetacolombia.co', clave: 'clave-de-prueba',
   cedula: '1012345678', nombres: 'Andrés', apellidos: 'Pérez',
 }
+const EMPRESA = { cuenta: 'tramites@empresa-premium.co', clave: 'clave-de-empresa' }
 const VERIFICADOR = 'v'.repeat(43)
 const RETO = createHash('sha256').update(VERIFICADOR).digest('base64url')
 
@@ -49,13 +50,14 @@ function enMemoria() {
 async function conEmisor(prueba) {
   const usuarios = enMemoria()
   await usuarios.crear({ ...USUARIO, clave: await cifrarClave(USUARIO.clave), habilitado: true })
+  await usuarios.crear({ cuenta: EMPRESA.cuenta, clave: await cifrarClave(EMPRESA.clave), habilitado: true, nombres: 'Trámites', apellidos: 'Premium', empresa: 'tramites-premium' })
   const app = crearApp({
     emisor: EMISOR,
     llave: await crearLlave(),
     usuarios,
     clientes: { portal: [`${REDIRECT}*`] },
     administradores: { 'afiliacion-admin': SECRETO_ADMIN },
-    servicios: { interoperabilidad: { secreto: SECRETO_SERVICIO, audiencia: ['custodia', 'autorizaciones', 'afiliacion'] }, custodia: { secreto: 'secreto-de-custodia', audiencia: 'autorizaciones' } },
+    servicios: { interoperabilidad: { secreto: SECRETO_SERVICIO, audiencia: ['custodia', 'autorizaciones', 'afiliacion'] }, custodia: { secreto: 'secreto-de-custodia', audiencia: 'autorizaciones' }, premium: { secreto: 'secreto-de-premium', audiencia: 'autorizaciones' } },
     origenes: ['http://localhost:4173'],
   })
   const srv = app.listen(0)
@@ -313,4 +315,24 @@ test('reset-password fija la clave de una cuenta sin cambiar si está habilitada
   assert.equal((await reset({ type: 'otp', value: 'x' })).status, 400)
   assert.equal((await admin(base, token, 'PUT', `/${randomUUID()}/reset-password`, { type: 'password', value: 'x'.repeat(12) })).status, 404)
   assert.equal((await reset({ type: 'password', value: 'otra-clave-muy-segura' }, 'basura')).status, 401)
+}))
+
+// HU-10: la empresa Premium entra por el mismo flujo, con su propio claim y solo la audiencia de Premium.
+test('la cuenta de una empresa recibe el claim empresa y solo la audiencia premium', () => conEmisor(async (base) => {
+  const r = await autorizar(base, { username: EMPRESA.cuenta, password: EMPRESA.clave })
+  const t = await (await canjear(base, new URL(r.headers.get('location')).searchParams.get('code'))).json()
+  const jwks = createRemoteJWKSet(new URL(`${base}${RUTA}/certs`))
+  const { payload: acceso } = await jwtVerify(t.access_token, jwks, { issuer: EMISOR, audience: 'premium' })
+  assert.equal(acceso.empresa, 'tramites-premium')
+  assert.equal(acceso.azp, 'portal')
+  assert.equal(acceso.cedula, undefined)
+  assert.deepEqual([].concat(acceso.aud), ['premium'], 'no sirve en la custodia ni en autorizaciones')
+  assert.equal(decodeJwt(t.id_token).empresa, 'tramites-premium', 'la SPA sabe por el token de identidad que es una empresa')
+}))
+
+test('client_credentials de premium: token para autorizaciones', () => conEmisor(async (base) => {
+  const r = await fetch(`${base}${RUTA}/token`, { method: 'POST', body: new URLSearchParams({ grant_type: 'client_credentials', client_id: 'premium', client_secret: 'secreto-de-premium' }) })
+  assert.equal(r.status, 200)
+  const { payload } = await jwtVerify((await r.json()).access_token, createRemoteJWKSet(new URL(`${base}${RUTA}/certs`)), { issuer: EMISOR, audience: 'autorizaciones' })
+  assert.equal(payload.azp, 'premium')
 }))

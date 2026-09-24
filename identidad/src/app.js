@@ -178,13 +178,14 @@ export function crearApp({ emisor, llave, usuarios, clientes, administradores = 
       sub: u.id,
       azp: c.azp, preferred_username: u.cuenta, email: u.cuenta, email_verified: true,
       given_name: u.nombres, family_name: u.apellidos, name: `${u.nombres} ${u.apellidos}`,
+      ...(u.empresa && { empresa: u.empresa }), // HU-10: la cuenta de una empresa Premium lleva su empresa en vez de cédula
     }
     res.set('cache-control', 'no-store').json({
       token_type: 'Bearer',
       expires_in: VIDA_TOKEN,
       scope: 'openid profile email',
       // Audiencias: cada servicio que atiende al ciudadano valida el mismo token (mapeador de audiencia en Keycloak).
-      access_token: await firmar({ ...perfil, typ: 'Bearer', scope: 'openid profile email', cedula: u.cedula }, AUDIENCIAS_CIUDADANO, VIDA_TOKEN),
+      access_token: await firmar({ ...perfil, typ: 'Bearer', scope: 'openid profile email', ...(!u.empresa && { cedula: u.cedula }) }, u.empresa ? 'premium' : AUDIENCIAS_CIUDADANO, VIDA_TOKEN),
       id_token: await firmar({ ...perfil, typ: 'ID', nonce: c.nonce }, c.azp, VIDA_TOKEN),
     })
   })

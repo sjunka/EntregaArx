@@ -1,0 +1,219 @@
+openapi: 3.1.0
+info:
+  title: Premium (MS-11)
+  version: 0.1.0
+  description: >
+    Catálogo Premium, casos PQRS y medición de uso de las empresas cliente (HU-10: RF-07.2, RF-07.3, RI-07). La empresa
+    abre un caso y pide desde él documentos a un ciudadano; la petición viaja a MS-06 como la de cualquier entidad, así que
+    el ciudadano decide documento por documento y la custodia no firma sin esa decisión (RI-08). Solo se mide y se cobra a
+    las empresas: ninguna operación del ciudadano pasa por este servicio (RI-07). Todas las rutas exigen un Bearer JWT del
+    emisor OIDC con audiencia `premium`, `azp: portal` y el claim `empresa` de una empresa registrada (ADR-0022).
+servers:
+  - url: http://localhost:8095
+security:
+  - bearer: []
+paths:
+  /perfil:
+    get:
+      operationId: perfil
+      summary: La empresa de la sesión y si tiene plan Premium
+      responses:
+        '200':
+          description: Empresa
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Perfil' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+  /catalogo:
+    get:
+      operationId: catalogo
+      summary: Servicios Premium contratables y su tarifa
+      responses:
+        '200':
+          description: Catálogo
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Servicio' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+  /uso:
+    get:
+      operationId: uso
+      summary: Uso medido de la empresa por servicio del catálogo
+      responses:
+        '200':
+          description: Un renglón por servicio, también los que no usó
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Uso' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+  /casos:
+    get:
+      operationId: listarCasos
+      summary: Casos de la empresa, del más reciente al más antiguo (hasta 50), con sus peticiones
+      description: El estado de cada petición pendiente se pone al día con MS-06; si MS-06 no responde, queda el último conocido.
+      responses:
+        '200':
+          description: Casos
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Caso' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+    post:
+      operationId: abrirCaso
+      summary: Abre un caso PQRS
+      description: Mide un uso del servicio `caso-pqrs`. Sin plan Premium activo responde 403 y no crea ni mide nada; la SPA ofrece entonces el catálogo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [asunto]
+              properties:
+                asunto: { type: string, minLength: 1, maxLength: 120 }
+      responses:
+        '201':
+          description: Caso abierto
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Caso' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+  /casos/{id}/peticiones:
+    post:
+      operationId: pedirDocumentos
+      summary: Pide documentos a un ciudadano desde un caso
+      description: >
+        MS-06 registra la petición y el ciudadano la ve en sus solicitudes; solo entonces se mide un uso de
+        `peticion-documentos`. Si MS-06 no la acepta responde 502 y no se mide. Un caso de otra empresa responde 404.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cedula, proposito, documentos]
+              properties:
+                cedula: { type: string, pattern: '^[0-9]{6,10}$' }
+                proposito: { type: string, minLength: 1, maxLength: 200 }
+                documentos:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items:
+                    type: object
+                    required: [titulo]
+                    properties: { titulo: { type: string, minLength: 1, maxLength: 120 } }
+      responses:
+        '201':
+          description: Petición creada, pendiente de la decisión del ciudadano
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, estado]
+                properties:
+                  id: { type: string, format: uuid }
+                  estado: { $ref: '#/components/schemas/EstadoPeticion' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '404': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+        '502': { $ref: '#/components/responses/Problema' }
+  /salud:
+    get:
+      operationId: salud
+      security: []
+      summary: Chequeo de salud
+      responses:
+        '200':
+          description: Servicio sano
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [estado]
+                properties:
+                  estado: { type: string, const: ok }
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer, bearerFormat: JWT }
+  schemas:
+    EstadoPeticion: { type: string, enum: [pendiente, atendida, rechazada] }
+    Perfil:
+      type: object
+      required: [empresa, nombre, premium]
+      properties:
+        empresa: { type: string }
+        nombre: { type: string }
+        premium: { type: boolean }
+    Servicio:
+      type: object
+      required: [id, nombre, descripcion, tarifaCop]
+      properties:
+        id: { type: string }
+        nombre: { type: string }
+        descripcion: { type: string }
+        tarifaCop: { type: integer }
+    Uso:
+      type: object
+      required: [servicio, nombre, total, tarifaCop, subtotalCop]
+      properties:
+        servicio: { type: string }
+        nombre: { type: string }
+        total: { type: integer }
+        tarifaCop: { type: integer }
+        subtotalCop: { type: integer }
+    Peticion:
+      type: object
+      required: [id, casoId, cedula, proposito, pedidos, estado, creado]
+      properties:
+        id: { type: string, format: uuid }
+        casoId: { type: string, format: uuid }
+        cedula: { type: string }
+        proposito: { type: string }
+        pedidos:
+          type: array
+          items:
+            type: object
+            required: [titulo]
+            properties: { titulo: { type: string } }
+        estado: { $ref: '#/components/schemas/EstadoPeticion' }
+        creado: { type: string, format: date-time }
+    Caso:
+      type: object
+      required: [id, asunto, estado, creado, peticiones]
+      properties:
+        id: { type: string, format: uuid }
+        asunto: { type: string }
+        estado: { type: string, enum: [abierto, cerrado] }
+        creado: { type: string, format: date-time }
+        peticiones:
+          type: array
+          items: { $ref: '#/components/schemas/Peticion' }
+  responses:
+    Problema:
+      description: Error RFC 9457
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            required: [type, title, status]
+            properties:
+              type: { type: string }
+              title: { type: string }
+              status: { type: integer }
+              detail: { type: string }

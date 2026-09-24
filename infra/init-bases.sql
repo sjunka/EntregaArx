@@ -4,3 +4,4 @@ CREATE DATABASE afiliacion;
 CREATE DATABASE custodia;
 CREATE DATABASE interoperabilidad;
 CREATE DATABASE autorizaciones;
+CREATE DATABASE premium;

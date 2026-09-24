@@ -1,7 +1,7 @@
 # Mi Carpeta Segura en local: docker compose up -d --build
 # SPA 4173 · emisor OIDC 8081 · afiliación 8082 · custodia 8083 · pasarela 8084 · Schema Registry 8085
 # interoperabilidad 8086 · notificaciones 8087 · entidad simulada 8088 · MinIO 9000 (consola 9001) · Mailpit 8025 · GovCarpeta simulado 8090
-# índice de carpeta 8091 · auditoría 8092 · autorizaciones 8093 · operador de origen simulado 8094
+# índice de carpeta 8091 · auditoría 8092 · autorizaciones 8093 · operador de origen simulado 8094 · premium 8095
 name: mcs
 
 x-migracion: &migracion
@@ -129,6 +129,7 @@ services:
       KC_AFILIACION_SECRETO: ${KC_AFILIACION_SECRETO:?copia .env.example a .env}
       KC_INTEROP_SECRETO: ${KC_INTEROP_SECRETO:?copia .env.example a .env}
       KC_CUSTODIA_SECRETO: ${KC_CUSTODIA_SECRETO:?copia .env.example a .env}
+      KC_PREMIUM_SECRETO: ${KC_PREMIUM_SECRETO:?copia .env.example a .env}
     ports: ["8081:8080"]
 
   # Doble de GovCarpeta: compose nunca escribe en el real (B-06, GOVCARPETA_ESCRITURA).
@@ -203,6 +204,31 @@ services:
       ORIGENES: http://localhost:4173,http://localhost:5173
       AUTORIZACION_HORAS: ${AUTORIZACION_HORAS:-72}
     ports: ["8093:8080"]
+
+  # MS-11: catálogo Premium, casos PQRS y uso medido de las empresas (HU-10). Sus peticiones pasan por MS-06.
+  migrar-premium:
+    <<: *migracion
+    build: ./servicios/premium
+    command: ["node", "src/server.js", "--migrar"]
+    environment:
+      DATABASE_URL: postgres://postgres:${PG_CLAVE}@postgres/premium
+
+  premium:
+    build: ./servicios/premium
+    restart: unless-stopped
+    depends_on:
+      migrar-premium: { condition: service_completed_successfully }
+      identidad: { condition: service_healthy }
+      autorizaciones: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://postgres:${PG_CLAVE}@postgres/premium
+      AUTORIZACIONES_URL: http://autorizaciones:8080
+      OIDC_INTERNO_URL: http://identidad:8080/realms/carpeta
+      KC_PREMIUM_SECRETO: ${KC_PREMIUM_SECRETO:?copia .env.example a .env}
+      OIDC_ISSUER: http://localhost:8081/realms/carpeta
+      OIDC_JWKS_URL: http://identidad:8080/realms/carpeta/protocol/openid-connect/certs
+      ORIGENES: http://localhost:4173,http://localhost:5173
+    ports: ["8095:8080"]
 
   migrar-custodia:
     <<: *migracion
@@ -379,6 +405,7 @@ services:
         VITE_MCS_AUDITORIA: http://localhost:8092
         VITE_MCS_AUTORIZACIONES: http://localhost:8093
         VITE_MCS_INTEROPERABILIDAD: http://localhost:8086
+        VITE_MCS_PREMIUM: http://localhost:8095
     restart: unless-stopped
     depends_on: { identidad: { condition: service_healthy } }
     ports: ["4173:80"]

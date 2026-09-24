@@ -1,7 +1,7 @@
 // Repositorio de usuarios del emisor simulado en su propia base (RD-11). Keycloak real usa la suya.
 const aUsuario = (f) => f && ({
   id: f.id, cuenta: f.cuenta, clave: f.clave, habilitado: f.habilitado, nombres: f.nombres, apellidos: f.apellidos,
-  cedula: f.cedula, correoContacto: f.correo_contacto, telefono: f.telefono,
+  cedula: f.cedula, correoContacto: f.correo_contacto, telefono: f.telefono, empresa: f.empresa,
 })
 
 export async function migrar(db) {
@@ -17,6 +17,7 @@ export async function migrar(db) {
     creado timestamptz NOT NULL DEFAULT now()
   )`)
   await db.query('ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS telefono text')
+  await db.query('ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS empresa text')
   await db.query(`CREATE TABLE IF NOT EXISTS intentos (
     cuenta text PRIMARY KEY,
     n int NOT NULL DEFAULT 0,

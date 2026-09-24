@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Autorizaciones (MS-06)
-  version: 0.2.0
+  version: 0.3.0
   description: >
     Decide si un documento puede salir hacia un tercero según el consentimiento del titular (HU-07: RF-04.3,
     RF-04.4, RF-04.5, RI-08; HU-08: RF-04.1, RF-04.2). Guarda las peticiones de las entidades y las autorizaciones del ciudadano; no
@@ -109,7 +109,7 @@ paths:
     post:
       operationId: crearPeticion
       summary: La interoperabilidad registra la petición de una entidad
-      description: Solo `azp` interoperabilidad. Idempotente por (entidad, idExterno).
+      description: Solo `azp` interoperabilidad o premium (las peticiones de un caso PQRS, HU-10; la entidad es el id de la empresa). Idempotente por (entidad, idExterno).
       security: [{ servicio: [] }]
       requestBody:
         required: true
@@ -149,6 +149,7 @@ paths:
     get:
       operationId: consultarPeticionDeEntidad
       summary: Estado de la petición y autorizaciones vigentes, para la entidad que la hizo
+      description: Solo `azp` interoperabilidad o premium.
       security: [{ servicio: [] }]
       parameters:
         - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
