@@ -1,8 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { createRemoteJWKSet, jwtVerify, decodeJwt } from 'jose'
-import { crearApp, crearLlave } from '../src/app.js'
+import { crearApp, crearLlave, cifrarClave } from '../src/app.js'
 
 // El iss es la URL que ve el navegador; los tests entran por el puerto local, como los servicios en compose.
 const EMISOR = 'http://localhost:8081/realms/carpeta'
@@ -15,12 +15,33 @@ const USUARIO = {
 const VERIFICADOR = 'v'.repeat(43)
 const RETO = createHash('sha256').update(VERIFICADOR).digest('base64url')
 
+const SECRETO_ADMIN = 'secreto-de-afiliacion'
+
+// Doble en memoria del repositorio Postgres (src/usuarios.js), con el mismo contrato.
+function enMemoria() {
+  const filas = new Map()
+  return {
+    porCuenta: async (cuenta) => [...filas.values()].find((u) => u.cuenta === cuenta) ?? null,
+    crear: async (u) => {
+      if ([...filas.values()].some((x) => x.cuenta === u.cuenta)) return null
+      const id = randomUUID()
+      filas.set(id, { ...u, id })
+      return id
+    },
+    habilitar: async (id, habilitado) => filas.has(id) && !!Object.assign(filas.get(id), { habilitado }),
+    borrar: async (id) => filas.delete(id),
+  }
+}
+
 async function conEmisor(prueba) {
+  const usuarios = enMemoria()
+  await usuarios.crear({ ...USUARIO, clave: await cifrarClave(USUARIO.clave), habilitado: true })
   const app = crearApp({
     emisor: EMISOR,
     llave: await crearLlave(),
-    usuarios: [USUARIO],
+    usuarios,
     clientes: { portal: [`${REDIRECT}*`] },
+    administradores: { 'afiliacion-admin': SECRETO_ADMIN },
     origenes: ['http://localhost:4173'],
   })
   const srv = app.listen(0)
@@ -57,12 +78,13 @@ test('publica el descubrimiento y el JWKS con las rutas de Keycloak', () => conE
 }))
 
 test('muestra el formulario de ingreso con los campos de Keycloak', () => conEmisor(async (base) => {
-  const q = new URLSearchParams({ client_id: 'portal', redirect_uri: REDIRECT, response_type: 'code', state: '"><script>', code_challenge: RETO, code_challenge_method: 'S256' })
+  const q = new URLSearchParams({ client_id: 'portal', redirect_uri: REDIRECT, response_type: 'code', state: '"><script>', code_challenge: RETO, code_challenge_method: 'S256', login_hint: 'ana@carpetacolombia.co' })
   const r = await fetch(`${base}${RUTA}/auth?${q}`)
   assert.equal(r.status, 200)
   const html = await r.text()
   for (const id of ['id="username"', 'id="password"', 'id="kc-login"']) assert.ok(html.includes(id), id)
   assert.ok(!html.includes('"><script>'), 'escapa los parámetros reflejados')
+  assert.ok(html.includes('value="ana@carpetacolombia.co"'), 'login_hint precarga la cuenta')
 }))
 
 test('código con PKCE canjeado por tokens con los claims del realm', () => conEmisor(async (base) => {
@@ -141,4 +163,75 @@ test('entradas raras responden como rechazo, no como falla del emisor', () => co
 
 test('la cuenta no distingue mayúsculas, como en Keycloak', () => conEmisor(async (base) => {
   assert.equal((await autorizar(base, { username: USUARIO.cuenta.toUpperCase() })).status, 302)
+}))
+
+// Admin API: el mismo subconjunto del de Keycloak que usa Afiliación para crear cuentas (HU-01).
+const ADMIN = '/admin/realms/carpeta/users'
+
+async function tokenAdmin(base, secreto = SECRETO_ADMIN) {
+  const r = await fetch(`${base}${RUTA}/token`, {
+    method: 'POST', body: new URLSearchParams({ grant_type: 'client_credentials', client_id: 'afiliacion-admin', client_secret: secreto }),
+  })
+  return { status: r.status, token: (await r.json()).access_token }
+}
+
+const admin = (base, token, metodo, ruta = '', cuerpo) => fetch(`${base}${ADMIN}${ruta}`, {
+  method: metodo, headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+  body: cuerpo && JSON.stringify(cuerpo),
+})
+
+const NUEVO = {
+  username: 'ana.gil.45678@carpetacolombia.co', email: 'ana.gil.45678@carpetacolombia.co', emailVerified: true,
+  firstName: 'Ana', lastName: 'Gil', enabled: false,
+  attributes: { cedula: ['9912345678'], correoContacto: ['ana@correo.co'] },
+  credentials: [{ type: 'password', value: 'clave-muy-segura', temporary: false }],
+}
+
+test('client_credentials solo con el secreto del cliente administrador', () => conEmisor(async (base) => {
+  assert.equal((await tokenAdmin(base, 'otro')).status, 401)
+  const { status, token } = await tokenAdmin(base)
+  assert.equal(status, 200)
+  assert.deepEqual(decodeJwt(token).resource_access['realm-management'].roles, ['manage-users'])
+}))
+
+test('el Admin API exige un token de administrador', () => conEmisor(async (base) => {
+  assert.equal((await admin(base, 'basura', 'GET', '?exact=true&username=x')).status, 401)
+  const code = new URL((await autorizar(base)).headers.get('location')).searchParams.get('code')
+  const { access_token } = await (await canjear(base, code)).json()
+  const r = await admin(base, access_token, 'GET', '?exact=true&username=x')
+  assert.equal(r.status, 403)
+  assert.match(r.headers.get('content-type'), /problem\+json/)
+}))
+
+test('crea deshabilitado, habilita, consulta y borra como Keycloak', () => conEmisor(async (base) => {
+  const { token } = await tokenAdmin(base)
+  const creado = await admin(base, token, 'POST', '', NUEVO)
+  assert.equal(creado.status, 201)
+  const id = creado.headers.get('location').split('/').pop()
+  assert.equal((await admin(base, token, 'POST', '', NUEVO)).status, 409, 'la cuenta es única')
+
+  const [u] = await (await admin(base, token, 'GET', `?exact=true&username=${NUEVO.username}`)).json()
+  assert.equal(u.id, id)
+  assert.equal(u.enabled, false)
+  assert.deepEqual(u.attributes.cedula, ['9912345678'])
+  assert.equal(u.credentials, undefined, 'nunca devuelve la clave')
+
+  const ingreso = { username: NUEVO.username, password: 'clave-muy-segura' }
+  assert.equal((await autorizar(base, ingreso)).status, 401, 'deshabilitado no ingresa')
+  assert.equal((await admin(base, token, 'PUT', `/${id}`, { enabled: true })).status, 204)
+  const ok = await autorizar(base, ingreso)
+  assert.equal(ok.status, 302)
+  const { access_token } = await (await canjear(base, new URL(ok.headers.get('location')).searchParams.get('code'))).json()
+  assert.equal(decodeJwt(access_token).cedula, '9912345678')
+  assert.equal(decodeJwt(access_token).sub, id)
+
+  assert.equal((await admin(base, token, 'DELETE', `/${id}`)).status, 204)
+  assert.deepEqual(await (await admin(base, token, 'GET', `?exact=true&username=${NUEVO.username}`)).json(), [])
+  assert.equal((await admin(base, token, 'DELETE', `/${id}`)).status, 404)
+}))
+
+test('usuario sin clave o sin cuenta: 400', () => conEmisor(async (base) => {
+  const { token } = await tokenAdmin(base)
+  assert.equal((await admin(base, token, 'POST', '', { ...NUEVO, credentials: [] })).status, 400)
+  assert.equal((await admin(base, token, 'POST', '', { ...NUEVO, username: '' })).status, 400)
 }))

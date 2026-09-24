@@ -1,0 +1,6 @@
+# Validación de contratos: npx @redocly/cli lint contratos/*.yaml
+extends: [recommended]
+rules:
+  info-license: off
+  no-server-example.com: off
+  operation-4xx-response: off # /salud no tiene errores de cliente

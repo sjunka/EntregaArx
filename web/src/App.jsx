@@ -1,14 +1,27 @@
 import { useEffect, useState } from 'react'
-import { FolderLock, FolderOpen, LogIn, LogOut } from 'lucide-react'
+import { FolderLock, FolderOpen, LogIn, LogOut, UserPlus } from 'lucide-react'
 import { sesion } from './sesion.js'
 import Tema from './Tema.jsx'
+import Registro from './Registro.jsx'
 
 // Una sola promesa: StrictMode corre el efecto dos veces y el código de ingreso solo se canjea una vez.
 const inicial = new URLSearchParams(window.location.search).has('code')
   ? sesion.signinRedirectCallback().finally(() => window.history.replaceState(null, '', window.location.pathname))
   : sesion.getUser()
 
+// Sin router: la vista vive en el hash (#registro).
+function useHash() {
+  const [hash, setHash] = useState(window.location.hash.slice(1))
+  useEffect(() => {
+    const cambiar = () => { setHash(window.location.hash.slice(1)); window.scrollTo(0, 0) }
+    window.addEventListener('hashchange', cambiar)
+    return () => window.removeEventListener('hashchange', cambiar)
+  }, [])
+  return hash
+}
+
 export default function App() {
+  const hash = useHash()
   const [usuario, setUsuario] = useState(undefined)
   const [fallo, setFallo] = useState(false)
 
@@ -19,6 +32,7 @@ export default function App() {
   let contenido
   if (usuario === undefined) contenido = <p className="text-ink-2" role="status">Abriendo tu carpeta…</p>
   else if (usuario) contenido = <Carpeta nombre={usuario.profile.given_name} />
+  else if (hash === 'registro') contenido = <Registro />
   else contenido = <Bienvenida fallo={fallo} />
 
   return (
@@ -42,9 +56,14 @@ export default function App() {
               <LogOut size={20} strokeWidth={1.75} aria-hidden="true" /> Cerrar sesión
             </button>
           ) : (
-            <button type="button" className="btn-primario" onClick={() => sesion.signinRedirect()}>
-              <LogIn size={20} strokeWidth={1.75} aria-hidden="true" /> Ingresar
-            </button>
+            <>
+              <a className="btn-secundario" href="#registro">
+                <UserPlus size={20} strokeWidth={1.75} aria-hidden="true" /> Afiliarme
+              </a>
+              <button type="button" className="btn-primario" onClick={() => sesion.signinRedirect()}>
+                <LogIn size={20} strokeWidth={1.75} aria-hidden="true" /> Ingresar
+              </button>
+            </>
           )}
         </nav>
       </header>
@@ -72,6 +91,9 @@ function Bienvenida({ fallo }) {
       <p className="text-lg text-ink-2 max-w-[60ch]">
         Mi Carpeta Segura es tu operador de Carpeta Ciudadana. Guarda tus documentos y compártelos solo con quien tú decidas.
       </p>
+      <div className="flex flex-wrap gap-3 my-6">
+        <a className="btn-primario" href="#registro">Crear mi carpeta</a>
+      </div>
     </section>
   )
 }

@@ -1,5 +1,5 @@
 {
-  "name": "mcs-identidad",
+  "name": "mcs-pasarela",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,8 +11,6 @@
     "node": ">=22"
   },
   "dependencies": {
-    "express": "^5.2.1",
-    "jose": "^6.2.12",
-    "pg": "^8.23.0"
+    "express": "^5.2.1"
   }
 }

@@ -7,7 +7,7 @@ Operador de Carpeta Ciudadana (curso Arquitecturas Avanzadas de Software). Glosa
 Requiere Docker y Node 22.
 
 ```sh
-cp .env.example .env          # y cambia USUARIO_DEMO_CLAVE
+cp .env.example .env          # y cambia las claves
 docker compose up -d --build
 ```
 
@@ -15,6 +15,11 @@ docker compose up -d --build
 |---|---|
 | SPA | http://localhost:4173 |
 | Emisor OIDC simulado | http://localhost:8081/realms/carpeta |
+| Afiliación (MS-03) | http://localhost:8082 |
+| Pasarela de GovCarpeta (MS-08) | http://localhost:8084 |
+| GovCarpeta simulado | http://localhost:8090 |
+
+Compose nunca escribe en el GovCarpeta real: la pasarela apunta a un doble local (`infra/govcarpeta-stub/`). La cédula `1000000001` figura afiliada a otro operador, para probar el rechazo. Para usar el real se define `GOVCARPETA_URL`, y escribir en él exige además `GOVCARPETA_ESCRITURA=1` y permiso explícito. La verificación con la Registraduría es simulada (B-06).
 
 Entra con **Ingresar** usando la cuenta de demostración `andres.perez.45678@carpetacolombia.co` y la clave de `USUARIO_DEMO_CLAVE`.
 
@@ -23,13 +28,16 @@ Para trabajar en la SPA con recarga en caliente: `cd web && npm i && npm run dev
 ## Pruebas
 
 ```sh
-cd identidad && npm i && npm test     # emisor OIDC, node:test
+npx @redocly/cli lint contratos/*.yaml   # contratos OpenAPI 3.1
+cd identidad && npm i && npm test     # emisor OIDC, node:test (igual en servicios/*)
 cd e2e && npm i && npx playwright install chromium && npm test   # flujos + axe, contra compose
 ```
 
 ## Identidad (ADR-0014)
 
 En local la identidad la emite `identidad/`, un emisor mínimo con las mismas rutas, claims y audiencias que el realm `carpeta` de Keycloak: token de acceso con `aud: custodia`, `azp: portal`, `preferred_username` y `cedula`; token de identidad con `aud: portal`. Solo admite Authorization Code con PKCE S256 y redirecciones registradas.
+
+También expone el subconjunto del Admin API de Keycloak que usa Afiliación para crear cuentas (`client_credentials` del cliente `afiliacion-admin`; `GET`, `POST`, `PUT` y `DELETE` en `/admin/realms/carpeta/users`). Los usuarios viven en su propia base Postgres.
 
 Cambiar a Keycloak es solo cambiar variables de entorno:
 
@@ -38,9 +46,11 @@ Cambiar a Keycloak es solo cambiar variables de entorno:
 | `VITE_OIDC_AUTHORITY` | build de la SPA | `http://localhost:8081/realms/carpeta` |
 | `OIDC_ISSUER` | servicios | `http://localhost:8081/realms/carpeta` |
 | `OIDC_JWKS_URL` | servicios | `http://identidad:8080/realms/carpeta/protocol/openid-connect/certs` |
+| `KEYCLOAK_URL`, `KEYCLOAK_SECRETO` | afiliación | `http://identidad:8080`, `KC_AFILIACION_SECRETO` |
 
 ## Trazabilidad
 
 | Entrega | Realiza |
 |---|---|
 | Esqueleto (#2) | RNF-11 autenticación con OIDC y PKCE (el segundo factor se activa en el objetivo, ADR-0006), RNF-17 WCAG 2.1 AA verificado con axe |
+| HU-01 Registro y afiliación | RF-01.1 registro, RF-01.2 verificación de identidad (simulada, B-06), RF-01.3 afiliación única, RF-01.5 cuenta institucional, RF-06.2 registro en GovCarpeta, RD-15 y RNF-21 solo datos mínimos por la pasarela (2 KB), RI-03 nunca una segunda afiliación |

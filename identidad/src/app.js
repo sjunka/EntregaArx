@@ -1,6 +1,21 @@
 import express from 'express'
-import { createHash, randomUUID, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto'
+import { promisify } from 'node:util'
 import { SignJWT, exportJWK, generateKeyPair, jwtVerify } from 'jose'
+
+const derivar = promisify(scrypt)
+
+export async function cifrarClave(clave) {
+  const sal = randomBytes(16)
+  return `scrypt$${sal.toString('base64url')}$${(await derivar(clave, sal, 32)).toString('base64url')}`
+}
+
+async function claveCorrecta(clave, cifrada) {
+  const [, sal, hash] = cifrada.split('$')
+  return timingSafeEqual(await derivar(clave, Buffer.from(sal, 'base64url'), 32), Buffer.from(hash, 'base64url'))
+}
+// Se compara contra esta cuando la cuenta no existe, para no revelar por tiempo qué cuentas hay.
+const SEÑUELO = await cifrarClave(randomUUID())
 
 // Emisor OIDC simulado (ADR-0014). Rutas, claims y audiencias iguales a las del realm «carpeta» de Keycloak,
 // para que servicios y SPA cambien de emisor solo con variables de entorno.
@@ -15,6 +30,8 @@ const VIDA_CODIGO = 60
 
 const sha256 = (s) => createHash('sha256').update(s).digest()
 const iguales = (a, b) => timingSafeEqual(sha256(a), sha256(b))
+const problema = (res, status, title, detail) =>
+  res.status(status).type('application/problem+json').json({ type: 'about:blank', title, status, detail })
 const esc = (s = '') => String(s).replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
 const coincide = (patrones = [], uri) =>
   typeof uri === 'string' && patrones.some((p) => (p.endsWith('*') ? uri.startsWith(p.slice(0, -1)) : uri === p))
@@ -42,18 +59,20 @@ function formulario(p, error) {
 ${error ? `<p class="error" role="alert" id="error">${error}</p>` : ''}
 <form method="post">${ocultos}
 <label for="username">Cuenta institucional</label>
-<input id="username" name="username" type="email" autocomplete="username" required${error ? ' aria-describedby="error"' : ''}>
+<input id="username" name="username" type="email" autocomplete="username" value="${esc(p.username ?? p.login_hint)}" required${error ? ' aria-describedby="error"' : ''}>
 <label for="password">Contraseña</label>
 <input id="password" name="password" type="password" autocomplete="current-password" required>
 <button id="kc-login" type="submit">Ingresar</button>
 </form>`)
 }
 
-// usuarios: [{ cuenta, clave, cedula, nombres, apellidos }]; clientes: { clientId: [redirects, admite * final] }
-export function crearApp({ emisor, llave, usuarios, clientes, origenes = [] }) {
+// usuarios: repositorio (src/usuarios.js) con porCuenta, crear, habilitar y borrar.
+// clientes: { clientId: [redirects, admite * final] }; administradores: { clientId: secreto } para el Admin API.
+export function crearApp({ emisor, llave, usuarios, clientes, administradores = {}, origenes = [] }) {
   const app = express()
   const base = new URL(emisor).pathname.replace(/\/$/, '')
   const oidc = `${base}/protocol/openid-connect`
+  const adminUsuarios = `/admin${base}/users`
   const firmar = (claims, aud, vida) => new SignJWT(claims)
     .setProtectedHeader({ alg: 'RS256', kid: llave.jwk.kid, typ: 'JWT' })
     .setIssuer(emisor).setAudience(aud).setIssuedAt().setExpirationTime(`${vida}s`).setJti(randomUUID())
@@ -65,6 +84,7 @@ export function crearApp({ emisor, llave, usuarios, clientes, origenes = [] }) {
     req.method === 'OPTIONS' ? res.sendStatus(204) : next()
   })
   app.use(express.urlencoded({ extended: false, limit: '4kb' }))
+  app.use(express.json({ limit: '4kb' }))
 
   app.get('/salud', (_req, res) => res.json({ estado: 'ok' }))
 
@@ -101,8 +121,10 @@ export function crearApp({ emisor, llave, usuarios, clientes, origenes = [] }) {
     const motivo = invalida(p)
     if (motivo) return rechazo(res, motivo)
     const cuenta = typeof p.username === 'string' ? p.username.trim().toLowerCase() : ''
-    const u = usuarios.find((x) => x.cuenta === cuenta)
-    if (!u || typeof p.password !== 'string' || !iguales(u.clave, p.password)) {
+    const u = cuenta ? await usuarios.porCuenta(cuenta) : null
+    const clave = typeof p.password === 'string' ? p.password : ''
+    const valida = await claveCorrecta(clave, u?.clave ?? SEÑUELO)
+    if (!u || !u.habilitado || !valida) {
       return res.status(401).type('html').send(formulario(p, 'La cuenta o la contraseña no coinciden. Revisa e intenta de nuevo.'))
     }
     // ponytail: código sin estado (JWT de 60 s), reutilizable dentro de esa ventana; Keycloak real lo invalida al primer uso.
@@ -117,17 +139,26 @@ export function crearApp({ emisor, llave, usuarios, clientes, origenes = [] }) {
   // Errores del token en formato OAuth 2.0 (RFC 6749 *5.2), que es lo que esperan los clientes OIDC.
   app.post(`${oidc}/token`, async (req, res) => {
     const p = req.body ?? {}
-    const falla = (error) => res.status(400).json({ error })
+    const falla = (error, status = 400) => res.status(status).json({ error })
+    if (p.grant_type === 'client_credentials') {
+      const secreto = Object.hasOwn(administradores, p.client_id) ? administradores[p.client_id] : null
+      if (!secreto || typeof p.client_secret !== 'string' || !iguales(secreto, p.client_secret)) return falla('unauthorized_client', 401)
+      // Cuenta de servicio con el rol manage-users de realm-management, como en Keycloak.
+      return res.set('cache-control', 'no-store').json({
+        token_type: 'Bearer', expires_in: VIDA_TOKEN,
+        access_token: await firmar({ sub: p.client_id, azp: p.client_id, typ: 'Bearer', resource_access: { 'realm-management': { roles: ['manage-users'] } } }, 'realm-management', VIDA_TOKEN),
+      })
+    }
     if (p.grant_type !== 'authorization_code') return falla('unsupported_grant_type')
     let c
     try { ({ payload: c } = await jwtVerify(String(p.code ?? ''), llave.publica, { issuer: emisor, audience: 'codigo' })) } catch { return falla('invalid_grant') }
     const reto = sha256(String(p.code_verifier ?? '')).toString('base64url')
     if (c.azp !== p.client_id || c.redirect_uri !== p.redirect_uri || reto !== c.reto) return falla('invalid_grant')
-    const u = usuarios.find((x) => x.cuenta === c.sub)
-    if (!u) return falla('invalid_grant')
+    const u = await usuarios.porCuenta(c.sub)
+    if (!u?.habilitado) return falla('invalid_grant')
 
     const perfil = {
-      sub: createHash('sha256').update(u.cuenta).digest('hex').slice(0, 32),
+      sub: u.id,
       azp: c.azp, preferred_username: u.cuenta, email: u.cuenta, email_verified: true,
       given_name: u.nombres, family_name: u.apellidos, name: `${u.nombres} ${u.apellidos}`,
     }
@@ -147,5 +178,54 @@ export function crearApp({ emisor, llave, usuarios, clientes, origenes = [] }) {
     res.type('html').send(pagina('Sesión cerrada', '<h1>Cerraste sesión</h1><p>Ya puedes cerrar esta ventana.</p>'))
   })
 
+  // Admin API: subconjunto del de Keycloak que usa Afiliación (MS-03) para crear cuentas institucionales.
+  app.use(adminUsuarios, async (req, res, next) => {
+    const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]
+    let t
+    try { ({ payload: t } = await jwtVerify(token ?? '', llave.publica, { issuer: emisor })) } catch { return problema(res, 401, 'Token inválido o ausente') }
+    const admin = [].concat(t.aud).includes('realm-management') && t.resource_access?.['realm-management']?.roles?.includes('manage-users')
+    admin ? next() : problema(res, 403, 'Sin permiso para administrar usuarios')
+  })
+
+  const representar = (u) => ({
+    id: u.id, username: u.cuenta, email: u.cuenta, emailVerified: true, firstName: u.nombres, lastName: u.apellidos,
+    enabled: u.habilitado, attributes: { cedula: [u.cedula], correoContacto: [u.correoContacto] },
+  })
+
+  app.get(adminUsuarios, async (req, res) => {
+    const u = typeof req.query.username === 'string' ? await usuarios.porCuenta(req.query.username.toLowerCase()) : null
+    res.json(u ? [representar(u)] : [])
+  })
+
+  app.post(adminUsuarios, async (req, res) => {
+    const b = req.body ?? {}
+    const clave = b.credentials?.find?.((c) => c.type === 'password')?.value
+    if (typeof b.username !== 'string' || !b.username.trim() || typeof clave !== 'string' || !clave) {
+      return problema(res, 400, 'Usuario inválido', 'Se exige username y una credencial de tipo password')
+    }
+    const id = await usuarios.crear({
+      cuenta: b.username.trim().toLowerCase(), clave: await cifrarClave(clave), habilitado: b.enabled === true,
+      nombres: b.firstName ?? '', apellidos: b.lastName ?? '',
+      cedula: b.attributes?.cedula?.[0] ?? null, correoContacto: b.attributes?.correoContacto?.[0] ?? null,
+    })
+    if (!id) return problema(res, 409, 'La cuenta ya existe')
+    res.location(`${req.protocol}://${req.get('host')}${adminUsuarios}/${id}`).sendStatus(201)
+  })
+
+  app.put(`${adminUsuarios}/:id`, async (req, res) => {
+    if (typeof req.body?.enabled !== 'boolean') return problema(res, 400, 'Solo se admite cambiar enabled')
+    ;(await usuarios.habilitar(req.params.id, req.body.enabled)) ? res.sendStatus(204) : problema(res, 404, 'Usuario no encontrado')
+  })
+
+  app.delete(`${adminUsuarios}/:id`, async (req, res) => {
+    ;(await usuarios.borrar(req.params.id)) ? res.sendStatus(204) : problema(res, 404, 'Usuario no encontrado')
+  })
+
+  app.use((err, _req, res, _next) => {
+    if (err.type === 'entity.parse.failed') return problema(res, 400, 'Cuerpo inválido')
+    if (err.type === 'entity.too.large') return problema(res, 413, 'Cuerpo demasiado grande')
+    console.error(JSON.stringify({ nivel: 'error', mensaje: err.message }))
+    problema(res, 500, 'Error interno')
+  })
   return app
 }

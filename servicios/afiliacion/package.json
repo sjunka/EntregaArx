@@ -1,18 +1,16 @@
 {
-  "name": "mcs-identidad",
+  "name": "mcs-afiliacion",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
+    "migrar": "node src/server.js --migrar",
     "test": "node --test"
-  },
-  "engines": {
-    "node": ">=22"
   },
   "dependencies": {
     "express": "^5.2.1",
-    "jose": "^6.2.12",
     "pg": "^8.23.0"
-  }
+  },
+  "engines": { "node": ">=22" }
 }

@@ -1,0 +1,81 @@
+openapi: 3.1.0
+info:
+  title: Pasarela del centralizador (MS-08)
+  version: 0.2.0
+  description: >
+    Capa anticorrupción sobre GovCarpeta: timeout de 8 s, reintento solo en lecturas y circuit
+    breaker. Nunca acepta contenido documental (RI-01, RD-15, RNF-21: cuerpos de 2 KB como máximo).
+    Solo escribe en el GovCarpeta real con GOVCARPETA_ESCRITURA=1.
+servers:
+  - url: http://localhost:8084
+security: [] # servicio interno: solo alcanzable desde la red del operador
+paths:
+  /centralizador/ciudadanos/{id}:
+    get:
+      operationId: consultarAfiliacion
+      summary: Consulta la afiliación (validateCitizen)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, pattern: '^[0-9]{6,10}$' } }
+      responses:
+        '200':
+          description: Resultado normalizado
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [afiliado, operador]
+                properties:
+                  afiliado: { type: boolean }
+                  operador: { type: [string, 'null'] }
+        '400': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
+  /centralizador/ciudadanos:
+    post:
+      operationId: registrarCiudadano
+      summary: Registra al ciudadano con este operador (registerCitizen)
+      description: Solo viajan id, nombre, dirección, correo institucional y operador (RF-06.2).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [id, nombre, direccion, correo]
+              properties:
+                id: { type: string, pattern: '^[0-9]{6,10}$' }
+                nombre: { type: string }
+                direccion: { type: string }
+                correo: { type: string, format: email }
+      responses:
+        '201':
+          description: Registrado
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  registrado: { type: boolean }
+        '400': { $ref: '#/components/responses/Problema' }
+        '413': { $ref: '#/components/responses/Problema' }
+        '502': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
+  /salud:
+    get:
+      operationId: salud
+      summary: Chequeo de salud
+      responses:
+        '200': { description: Servicio sano }
+components:
+  responses:
+    Problema:
+      description: Error RFC 9457
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            required: [title, status]
+            properties:
+              type: { type: string }
+              title: { type: string }
+              status: { type: integer }
+              detail: { type: string }

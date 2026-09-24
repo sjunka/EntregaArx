@@ -1,24 +1,95 @@
 # Mi Carpeta Segura en local: docker compose up -d --build
-# SPA 4173 · emisor OIDC 8081
+# SPA 4173 · emisor OIDC 8081 · afiliación 8082 · pasarela 8084 · GovCarpeta simulado 8090
 name: mcs
 
+x-migracion: &migracion
+  depends_on: { postgres: { condition: service_healthy } }
+  restart: "no"
+
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_PASSWORD: ${PG_CLAVE:?copia .env.example a .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./infra/init-bases.sql:/docker-entrypoint-initdb.d/init-bases.sql:ro
+    healthcheck:
+      test: pg_isready -U postgres
+      interval: 5s
+      retries: 20
+
+  migrar-identidad:
+    <<: *migracion
+    build: ./identidad
+    command: ["node", "src/server.js", "--migrar"]
+    environment:
+      DATABASE_URL: postgres://postgres:${PG_CLAVE}@postgres/identidad
+      USUARIO_DEMO_CLAVE: ${USUARIO_DEMO_CLAVE:?copia .env.example a .env}
+
   identidad:
     build: ./identidad
     restart: unless-stopped
+    depends_on: { migrar-identidad: { condition: service_completed_successfully } }
     environment:
-      # iss que ve el navegador; los servicios leen el JWKS por la red interna (OIDC_JWKS_URL).
+      DATABASE_URL: postgres://postgres:${PG_CLAVE}@postgres/identidad
+      # iss que ve el navegador; los servicios entran por la red interna (http://identidad:8080).
       OIDC_ISSUER: http://localhost:8081/realms/carpeta
       PORTAL_REDIRECTS: http://localhost:4173/*,http://localhost:5173/*
       ORIGENES: http://localhost:4173,http://localhost:5173
-      USUARIO_DEMO_CLAVE: ${USUARIO_DEMO_CLAVE:?copia .env.example a .env}
+      KC_AFILIACION_SECRETO: ${KC_AFILIACION_SECRETO:?copia .env.example a .env}
     ports: ["8081:8080"]
+
+  # Doble de GovCarpeta: compose nunca escribe en el real (B-06, GOVCARPETA_ESCRITURA).
+  govcarpeta:
+    build: ./infra/govcarpeta-stub
+    restart: unless-stopped
+    ports: ["8090:8080"]
+
+  pasarela:
+    build: ./servicios/pasarela
+    restart: unless-stopped
+    depends_on: { govcarpeta: { condition: service_healthy } }
+    environment:
+      GOVCARPETA_URL: ${GOVCARPETA_URL:-http://govcarpeta:8080}
+      GOVCARPETA_ESCRITURA: ${GOVCARPETA_ESCRITURA:-0}
+      OPERADOR_ID: ${OPERADOR_ID:-mcs-local}
+      OPERADOR_NOMBRE: Mi Carpeta Segura
+    ports: ["8084:8080"]
+
+  migrar-afiliacion:
+    <<: *migracion
+    build: ./servicios/afiliacion
+    command: ["node", "src/server.js", "--migrar"]
+    environment:
+      DATABASE_URL: postgres://postgres:${PG_CLAVE}@postgres/afiliacion
+
+  afiliacion:
+    build: ./servicios/afiliacion
+    restart: unless-stopped
+    depends_on:
+      migrar-afiliacion: { condition: service_completed_successfully }
+      identidad: { condition: service_healthy }
+      pasarela: { condition: service_healthy }
+    environment:
+      DATABASE_URL: postgres://postgres:${PG_CLAVE}@postgres/afiliacion
+      PASARELA_URL: http://pasarela:8080
+      KEYCLOAK_URL: http://identidad:8080
+      KEYCLOAK_SECRETO: ${KC_AFILIACION_SECRETO}
+      # En local todas las pruebas salen de la misma IP; en la nube queda el valor por defecto (5).
+      LIMITE_REGISTROS_HORA: 1000
+      ORIGENES: http://localhost:4173,http://localhost:5173
+    ports: ["8082:8080"]
 
   web:
     build:
       context: ./web
       args:
         VITE_OIDC_AUTHORITY: http://localhost:8081/realms/carpeta
+        VITE_MCS_AFILIACION: http://localhost:8082
     restart: unless-stopped
     depends_on: { identidad: { condition: service_healthy } }
     ports: ["4173:80"]
+
+volumes:
+  pgdata:
