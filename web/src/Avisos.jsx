@@ -79,7 +79,7 @@ export default function Avisos({ alVencer }) {
           ) : (
             <ul className="list-none p-0 grid gap-2">
               {historial.map((h, i) => (
-                <li key={i} className="bg-surface border border-border rounded-lg p-3">
+                <li key={`${h.creado}-${h.canal}`} className="bg-surface border border-border rounded-lg p-3">
                   <span className="font-semibold">{h.asunto}</span>
                   <span className="block text-sm text-ink-2">
                     {{ correo: 'Por correo', sms: 'Por SMS', ninguno: 'Sin canal disponible' }[h.canal]} · {h.estado === 'enviado' ? 'Enviado' : 'No se pudo enviar'} · {fecha(h.creado)}
