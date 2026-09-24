@@ -189,7 +189,7 @@ export function crearApp({ emisor, llave, usuarios, clientes, administradores = 
 
   const representar = (u) => ({
     id: u.id, username: u.cuenta, email: u.cuenta, emailVerified: true, firstName: u.nombres, lastName: u.apellidos,
-    enabled: u.habilitado, attributes: { cedula: [u.cedula], correoContacto: [u.correoContacto] },
+    enabled: u.habilitado, attributes: { cedula: [u.cedula], correoContacto: [u.correoContacto], telefono: [u.telefono] },
   })
 
   app.get(adminUsuarios, async (req, res) => {
@@ -207,6 +207,7 @@ export function crearApp({ emisor, llave, usuarios, clientes, administradores = 
       cuenta: b.username.trim().toLowerCase(), clave: await cifrarClave(clave), habilitado: b.enabled === true,
       nombres: b.firstName ?? '', apellidos: b.lastName ?? '',
       cedula: b.attributes?.cedula?.[0] ?? null, correoContacto: b.attributes?.correoContacto?.[0] ?? null,
+      telefono: b.attributes?.telefono?.[0] ?? null,
     })
     if (!id) return problema(res, 409, 'La cuenta ya existe')
     res.location(`${req.protocol}://${req.get('host')}${adminUsuarios}/${id}`).sendStatus(201)

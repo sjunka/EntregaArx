@@ -183,7 +183,7 @@ const admin = (base, token, metodo, ruta = '', cuerpo) => fetch(`${base}${ADMIN}
 const NUEVO = {
   username: 'ana.gil.45678@carpetacolombia.co', email: 'ana.gil.45678@carpetacolombia.co', emailVerified: true,
   firstName: 'Ana', lastName: 'Gil', enabled: false,
-  attributes: { cedula: ['9912345678'], correoContacto: ['ana@correo.co'] },
+  attributes: { cedula: ['9912345678'], correoContacto: ['ana@correo.co'], telefono: ['3001234567'] },
   credentials: [{ type: 'password', value: 'clave-muy-segura', temporary: false }],
 }
 
@@ -214,6 +214,7 @@ test('crea deshabilitado, habilita, consulta y borra como Keycloak', () => conEm
   assert.equal(u.id, id)
   assert.equal(u.enabled, false)
   assert.deepEqual(u.attributes.cedula, ['9912345678'])
+  assert.deepEqual(u.attributes.telefono, ['3001234567'])
   assert.equal(u.credentials, undefined, 'nunca devuelve la clave')
 
   const ingreso = { username: NUEVO.username, password: 'clave-muy-segura' }

@@ -22,6 +22,8 @@ export function validarRegistro(b) {
     if (typeof b?.[k] !== 'string' || !b[k].trim() || b[k].length > max) errores.push(k)
   }
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(b?.correoContacto ?? '')) errores.push('correoContacto')
+  // RF-01.1: celular colombiano de 10 dígitos que empieza por 3.
+  if (typeof b?.telefono !== 'string' || !/^3[0-9]{9}$/.test(b.telefono)) errores.push('telefono')
   if (typeof b?.clave !== 'string' || b.clave.length < 12 || b.clave.length > 64) errores.push('clave')
   return errores
 }

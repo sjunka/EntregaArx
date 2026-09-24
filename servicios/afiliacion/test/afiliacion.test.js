@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { cuentaInstitucional, validarRegistro, cedulaEnmascarada } from '../src/cuenta.js'
 import { crearApp, crearLimite } from '../src/app.js'
 
-const datos = { cedula: '9912345678', nombre: 'José Ángel', apellido: 'Muñoz Pérez', direccion: 'Calle 1', correoContacto: 'j@x.co', clave: 'clave-muy-segura' }
+const datos = { cedula: '9912345678', nombre: 'José Ángel', apellido: 'Muñoz Pérez', direccion: 'Calle 1', correoContacto: 'j@x.co', telefono: '3001234567', clave: 'clave-muy-segura' }
 
 test('cuenta institucional: sin tildes, determinista y distinta en colisión', () => {
   assert.equal(cuentaInstitucional(datos), 'jose.munoz.45678@carpetacolombia.co')
@@ -17,6 +17,9 @@ test('valida entrada y enmascara la cédula en logs', () => {
   assert.deepEqual(validarRegistro(datos), [])
   assert.deepEqual(validarRegistro({ ...datos, cedula: '12a', clave: 'corta' }), ['cedula', 'clave'])
   assert.deepEqual(validarRegistro({ ...datos, cedula: 9912345678 }), ['cedula'], 'la cédula llega como texto')
+  for (const telefono of [undefined, '300123456', '6011234567', '300 123 4567', 3001234567]) {
+    assert.deepEqual(validarRegistro({ ...datos, telefono }), ['telefono'], `teléfono ${telefono}`)
+  }
   assert.equal(cedulaEnmascarada('9912345678'), '******5678')
 })
 
@@ -29,10 +32,11 @@ test('el límite por IP corta al sexto intento', () => {
 
 async function registrar(deps, cuerpo = datos, { previo = null, cabeceras = {} } = {}) {
   const llamadas = []
+  const creados = []
   const sql = []
   const keycloak = {
     buscar: async () => previo,
-    crearDeshabilitado: async () => { llamadas.push('crear'); return 'u1' },
+    crearDeshabilitado: async (u) => { llamadas.push('crear'); creados.push(u); return 'u1' },
     habilitar: async () => llamadas.push('habilitar'),
     borrar: async () => llamadas.push('borrar'),
   }
@@ -42,7 +46,7 @@ async function registrar(deps, cuerpo = datos, { previo = null, cabeceras = {} }
     const r = await fetch(`http://localhost:${srv.address().port}/ciudadanos`, {
       method: 'POST', headers: { 'content-type': 'application/json', ...cabeceras }, body: JSON.stringify(cuerpo),
     })
-    return { status: r.status, tipo: r.headers.get('content-type'), cuerpo: await r.json(), llamadas, sql }
+    return { status: r.status, tipo: r.headers.get('content-type'), cuerpo: await r.json(), llamadas, creados, sql }
   } finally { srv.close() }
 }
 
@@ -125,7 +129,8 @@ test('camino feliz: verifica, crea deshabilitado, registra solo lo mínimo y hab
   assert.equal(r.status, 201)
   assert.deepEqual(r.cuerpo, { cedula: '9912345678', cuenta: 'jose.munoz.45678@carpetacolombia.co', estado: 'afiliado', identidad: 'simulada' })
   assert.deepEqual(r.llamadas, ['crear', 'habilitar'])
-  assert.deepEqual(enviados, [{ id: '9912345678', nombre: 'José Ángel Muñoz Pérez', direccion: 'Calle 1', correo: 'jose.munoz.45678@carpetacolombia.co' }])
+  assert.deepEqual(enviados, [{ id: '9912345678', nombre: 'José Ángel Muñoz Pérez', direccion: 'Calle 1', correo: 'jose.munoz.45678@carpetacolombia.co' }], 'el teléfono no viaja a GovCarpeta')
+  assert.equal(r.creados[0].telefono, '3001234567', 'el teléfono queda en la cuenta')
 })
 
 test('CORS solo para orígenes registrados', async () => {

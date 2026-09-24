@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Afiliación (MS-03)
-  version: 0.2.0
+  version: 0.3.0
   description: >
     Registro de ciudadanos con afiliación única contra GovCarpeta. Realiza HU-01
     (RF-01.1, RF-01.2, RF-01.3, RF-01.5, RI-03). La verificación de identidad contra la
@@ -42,7 +42,7 @@ components:
   schemas:
     Registro:
       type: object
-      required: [cedula, nombre, apellido, direccion, correoContacto, clave]
+      required: [cedula, nombre, apellido, direccion, correoContacto, telefono, clave]
       additionalProperties: false
       properties:
         cedula: { type: string, pattern: '^[0-9]{6,10}$' }
@@ -50,6 +50,7 @@ components:
         apellido: { type: string, minLength: 1, maxLength: 60 }
         direccion: { type: string, minLength: 1, maxLength: 120 }
         correoContacto: { type: string, format: email }
+        telefono: { type: string, pattern: '^3[0-9]{9}$', description: 'Celular colombiano de 10 dígitos (RF-01.1). No viaja a GovCarpeta.' }
         clave: { type: string, minLength: 12, maxLength: 64, writeOnly: true }
     Afiliado:
       type: object

@@ -18,6 +18,7 @@ const PASOS = [
     campos: [
       { id: 'direccion', etiqueta: 'Dirección de residencia', ayuda: 'El directorio nacional la exige para registrar tu afiliación.', autoComplete: 'street-address', patron: /^.{1,120}$/, error: 'Escribe tu dirección.' },
       { id: 'correoContacto', etiqueta: 'Correo personal', ayuda: 'Te escribiremos aquí. Tu cuenta en la carpeta será un correo institucional distinto.', type: 'email', autoComplete: 'email', patron: /^[^@\s]+@[^@\s]+\.[^@\s]+$/, error: 'Escribe un correo válido, por ejemplo ana@correo.co.' },
+      { id: 'telefono', etiqueta: 'Teléfono celular', ayuda: '10 números, sin espacios. Solo lo usamos para contactarte; no se comparte con el directorio nacional.', type: 'tel', inputMode: 'numeric', autoComplete: 'tel-national', patron: /^3[0-9]{9}$/, error: 'Escribe un celular de 10 números que empiece por 3, por ejemplo 3001234567.' },
     ],
   },
   {

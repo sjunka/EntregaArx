@@ -12,6 +12,7 @@ async function llenarRegistro(page, cedula) {
   await page.getByRole('button', { name: 'Continuar' }).click()
   await page.getByLabel('Dirección de residencia').fill('Calle 10 # 20-30, Bogotá')
   await page.getByLabel('Correo personal').fill('prueba.e2e@example.com')
+  await page.getByLabel('Teléfono celular').fill('3001234567')
   await page.getByRole('button', { name: 'Continuar' }).click()
   await page.getByLabel('Crea una clave').fill(CLAVE)
   await page.getByRole('button', { name: 'Afiliarme' }).click()
