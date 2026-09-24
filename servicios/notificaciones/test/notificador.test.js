@@ -114,3 +114,42 @@ test('un canal sin destino (por ejemplo SMS sin celular) no se intenta', async (
 })
 
 test('CANALES son correo y sms', () => assert.deepEqual(CANALES, ['correo', 'sms']))
+
+// HU-08 · confirmación de entrega al ciudadano cuando el correo con los enlaces salió hacia la entidad.
+const ENVIO = {
+  id: '44444444-4444-4444-8444-444444444444', cedula: '1012345678', correo: 'tramites@entidad.co',
+  documentos: [{ id: '22222222-2222-4222-8222-222222222222', titulo: 'Cédula de ciudadanía' }, { id: '33333333-3333-4333-8333-333333333333', titulo: 'Diploma' }],
+  entregadoEn: '2026-09-24T10:00:00Z',
+}
+
+test('envío entregado: confirma al ciudadano por su canal, con destinatario y documentos, sin enlaces', async () => {
+  const { n, enviados, historial } = montar()
+  await n.alAfiliar(AFILIADO)
+  await n.alEntregarEnvio({ id: 'e-envio', datos: ENVIO })
+  assert.equal(enviados.length, 1)
+  assert.equal(enviados[0].destino, 'ana@correo.co')
+  assert.match(enviados[0].asunto, /entregamos/i)
+  assert.match(enviados[0].texto, /tramites@entidad\.co/)
+  assert.match(enviados[0].texto, /Cédula de ciudadanía/)
+  assert.match(enviados[0].texto, /Diploma/)
+  assert.doesNotMatch(enviados[0].texto, /https?:/)
+  assert.deepEqual(historial.map((h) => [h.canal, h.estado, h.eventoId]), [['correo', 'enviado', 'e-envio']])
+})
+
+test('envío entregado: por SMS el mensaje es corto y respeta los canales elegidos; repetir el evento no repite el aviso', async () => {
+  const { n, enviados, contactos } = montar()
+  await n.alAfiliar(AFILIADO)
+  contactos.get('1012345678').canales = ['correo', 'sms']
+  await n.alEntregarEnvio({ id: 'e-envio', datos: ENVIO })
+  await n.alEntregarEnvio({ id: 'e-envio', datos: ENVIO })
+  assert.deepEqual(enviados.map((e) => e.canal), ['correo', 'sms'])
+  assert.ok(enviados[1].texto.length <= 160, enviados[1].texto)
+})
+
+test('envío entregado sin contacto del ciudadano: queda fallido en el historial y levanta alerta operativa', async () => {
+  const { n, enviados, historial, alertas } = montar()
+  await n.alEntregarEnvio({ id: 'e-envio', datos: ENVIO })
+  assert.equal(enviados.length, 0)
+  assert.deepEqual(historial.map((h) => [h.canal, h.estado]), [['ninguno', 'fallido']])
+  assert.equal(alertas.length, 1)
+})

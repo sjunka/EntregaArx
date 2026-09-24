@@ -25,7 +25,7 @@ export async function crearLlave() {
   return { privada: privateKey, publica: publicKey, jwk: { ...(await exportJWK(publicKey)), kid: randomUUID(), alg: 'RS256', use: 'sig' } }
 }
 
-export const AUDIENCIAS_CIUDADANO = ['custodia', 'notificaciones', 'indice', 'auditoria', 'autorizaciones']
+export const AUDIENCIAS_CIUDADANO = ['custodia', 'notificaciones', 'indice', 'auditoria', 'autorizaciones', 'interoperabilidad']
 const VIDA_TOKEN = 300 // accessTokenLifespan del realm
 const VIDA_CODIGO = 60
 const MAX_INTENTOS = 5 // HU-02: al quinto fallo la cuenta se bloquea

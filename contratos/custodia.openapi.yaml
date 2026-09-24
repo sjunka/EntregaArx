@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
   title: Custodia documental (MS-04)
-  version: 0.6.0
+  version: 0.7.0
   description: >
     Documentos del ciudadano afiliado. Realiza HU-02 (RF-09.1, RNF-10, RNF-11) y HU-03
-    (RF-02.2, RF-02.3, RNF-24, RI-06) y HU-04 (RF-06.6, RF-02.5, RI-01, RNF-21) y HU-05 (RF-03.2, RF-03.3) y HU-06 (RF-02.7, RNF-01) y HU-07 (RI-08): todas las rutas
+    (RF-02.2, RF-02.3, RNF-24, RI-06) y HU-04 (RF-06.6, RF-02.5, RI-01, RNF-21) y HU-05 (RF-03.2, RF-03.3) y HU-06 (RF-02.7, RNF-01) y HU-07 (RI-08) y HU-08 (RF-04.1): todas las rutas
     salvo /salud exigen un Bearer JWT del emisor OIDC con audiencia `custodia` y `azp: portal`;
     sin firma válida, de otro emisor, de otra audiencia o vencido responde 401. Cada ciudadano
     solo ve su Carpeta. El binario nunca pasa por este servicio: sube directo al almacén por una
@@ -252,6 +252,48 @@ paths:
         '404': { $ref: '#/components/responses/Problema' }
         '422': { $ref: '#/components/responses/Problema' }
         '503': { $ref: '#/components/responses/Problema' }
+  /interno/comprobacion:
+    post:
+      operationId: comprobarDocumentos
+      summary: Qué documentos de una lista son del titular y están en su Carpeta (HU-08)
+      description: >
+        Solo la interoperabilidad. Antes de conceder un envío comprueba que cada documento es del titular y está en su
+        Carpeta; devuelve solo los que cumplen, en el orden pedido, y no revela que otros existan.
+      security: [{ servicio: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cedula, documentos]
+              properties:
+                cedula: { type: string, pattern: '^[0-9]{6,10}$' }
+                documentos:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  items: { type: string, format: uuid }
+      responses:
+        '200':
+          description: Los documentos que sí son del titular
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [documentos]
+                properties:
+                  documentos:
+                    type: array
+                    items:
+                      type: object
+                      required: [id, titulo]
+                      properties:
+                        id: { type: string, format: uuid }
+                        titulo: { type: string }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
   /cuota:
     get:
       operationId: consultarCuota

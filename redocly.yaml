@@ -4,3 +4,4 @@ rules:
   info-license: off
   no-server-example.com: off
   operation-4xx-response: off # /salud no tiene errores de cliente
+  operation-2xx-response: off # los métodos no permitidos de la bitácora (405) no tienen éxito

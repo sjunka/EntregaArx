@@ -5,6 +5,7 @@ const CUSTODIA = import.meta.env.VITE_MCS_CUSTODIA || 'http://localhost:8083'
 const NOTIFICACIONES = import.meta.env.VITE_MCS_NOTIFICACIONES || 'http://localhost:8087'
 const INDICE = import.meta.env.VITE_MCS_INDICE || 'http://localhost:8091'
 const AUTORIZACIONES = import.meta.env.VITE_MCS_AUTORIZACIONES || 'http://localhost:8093'
+const INTEROPERABILIDAD = import.meta.env.VITE_MCS_INTEROPERABILIDAD || 'http://localhost:8086'
 
 export class ErrorServicio extends Error {
   constructor(status, titulo, detalle) {
@@ -72,6 +73,12 @@ export const autorizar = (peticionId, documentos) =>
   conSesion('/autorizaciones', { method: 'POST', body: JSON.stringify({ peticionId, documentos }) }, AUTORIZACIONES)
 export const rechazar = (id) => conSesion(`/peticiones/${id}/rechazo`, { method: 'POST', body: '{}' }, AUTORIZACIONES)
 export const revocar = (id) => conSesion(`/autorizaciones/${id}`, { method: 'DELETE' }, AUTORIZACIONES)
+
+// Envío a una entidad sin operador (MS-07, HU-08). La clave de idempotencia hace seguro repetir la solicitud si la
+// respuesta se pierde: el envío, la autorización y el correo no se duplican.
+export const enviar = ({ correo, documentos, clave }) =>
+  conSesion('/envios', { method: 'POST', headers: { 'idempotency-key': clave }, body: JSON.stringify({ correo, documentos }) }, INTEROPERABILIDAD)
+export const envios = () => conSesion('/envios', {}, INTEROPERABILIDAD)
 
 export const preferencias = () => conSesion('/preferencias', {}, NOTIFICACIONES)
 export const guardarPreferencias = (canales) =>

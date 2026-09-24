@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: Auditoría (MS-02)
-  version: 0.1.0
+  version: 0.2.0
   description: >
     Bitácora inalterable de quién accedió a cada Carpeta (HU-06: RF-02.7; HU-11 la muestra al ciudadano).
     Se alimenta del evento `acceso.registrado` (contratos/eventos), que MS-04 publica cada vez que entrega
-    una URL de lectura. Es solo-append: no existe ninguna ruta que cambie o borre un registro y cualquier
+    una URL de lectura, y de `envio.entregado`, que MS-07 publica cuando el correo de un envío a una entidad sin
+    operador salió (HU-08): un registro por documento enviado. Es solo-append: no existe ninguna ruta que cambie o borre un registro y cualquier
     método distinto de GET sobre `/accesos` responde 405. Exige un Bearer JWT con audiencia `auditoria` y
     `azp: portal`; cada ciudadano solo ve los accesos a su propia Carpeta.
 servers:
@@ -55,13 +56,14 @@ components:
         id: { type: string }
         documentoId: { type: string, format: uuid }
         titulo: { type: string }
-        accion: { type: string, enum: [descarga, lectura-tercero] }
+        accion: { type: string, enum: [descarga, lectura-tercero, envio] }
         actor:
           type: object
           required: [tipo, id]
           properties:
             tipo: { type: string, enum: [titular, tercero] }
             id: { type: string, description: 'Cédula del titular, o entidad:{id} / correo:{dirección} del tercero' }
+        destino: { type: string, description: 'Solo en los envíos: correo:{dirección} de la entidad destinataria' }
         ocurridoEn: { type: string, format: date-time }
   responses:
     Problema:

@@ -151,6 +151,18 @@ export function crearApp({ documentos, verificar, almacen, almacenCertificados, 
       Array.isArray(r) ? problema(res, ...r) : res.json(r)
     } catch (e) { next(e) }
   })
+
+  // HU-08: qué documentos de la lista son del titular y están en su Carpeta (el envío no comparte lo que no es suyo).
+  interno.post('/comprobacion', async (req, res, next) => {
+    const { cedula, documentos: ids } = req.body ?? {}
+    if (!/^[0-9]{6,10}$/.test(cedula ?? '') || !Array.isArray(ids) || !ids.length || ids.length > 10 || !ids.every((i) => UUID.test(i))) {
+      return problema(res, 422, 'Comprobación inválida', 'Se exigen la cédula del titular y entre 1 y 10 documentos.')
+    }
+    try {
+      const encontrados = await Promise.all(ids.map((id) => documentos.buscar(id)))
+      res.json({ documentos: encontrados.filter((d) => d?.titular === cedula && DESCARGABLES.includes(d.estado)).map((d) => ({ id: d.id, titulo: d.titulo })) })
+    } catch (e) { next(e) }
+  })
   app.use('/interno', interno)
 
   // Ciudadano con sesión del portal: el resto de las rutas.

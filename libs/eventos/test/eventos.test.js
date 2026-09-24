@@ -23,6 +23,7 @@ const EJEMPLOS = {
   'documento.autenticado': { id: '11111111-1111-4111-8111-111111111111', cedula: '1012345678', autenticadoEn: '2026-09-24T10:00:00Z' },
   'documento.eliminado': { id: '11111111-1111-4111-8111-111111111111', cedula: '1012345678', eliminadoEn: '2026-09-24T10:00:00Z' },
   'acceso.registrado': { documentoId: '11111111-1111-4111-8111-111111111111', cedula: '1012345678', titulo: 'Cédula', accion: 'descarga', actor: { tipo: 'titular', id: '1012345678' }, ocurridoEn: '2026-09-24T10:00:00Z' },
+  'envio.entregado': { id: '11111111-1111-4111-8111-111111111111', cedula: '1012345678', correo: 'tramites@entidad.co', documentos: [{ id: '22222222-2222-4222-8222-222222222222', titulo: 'Cédula' }], entregadoEn: '2026-09-24T10:00:00Z' },
   'ciudadano.afiliado': { cedula: '1012345678', cuenta: 'ana.gil.45678@carpetacolombia.co', correoContacto: 'ana@correo.co', telefono: '3001234567', afiliadoEn: '2026-09-24T10:00:00Z' },
 }
 
@@ -46,6 +47,10 @@ test('contrato: un evento con campos de más o con formato malo no valida', asyn
   const acc = compilar(await esquema('acceso-registrado.v1.schema.json'))
   assert.equal(acc({ ...EJEMPLOS['acceso.registrado'], accion: 'borrado' }), false, 'la bitácora solo registra lecturas')
   assert.equal(acc({ ...EJEMPLOS['acceso.registrado'], actor: { tipo: 'titular' } }), false)
+  const envio = compilar(await esquema('envio-entregado.v1.schema.json'))
+  assert.equal(envio({ ...EJEMPLOS['envio.entregado'], documentos: [] }), false, 'un envío sin documentos no es un envío')
+  assert.equal(envio({ ...EJEMPLOS['envio.entregado'], enlaces: ['https://x'] }), false, 'los enlaces nunca viajan en el evento')
+  assert.equal(envio({ ...EJEMPLOS['envio.entregado'], correo: 'no-es-correo' }), false)
   const cargado = compilar(await esquema('documento-cargado.v1.schema.json'))
   assert.equal(cargado({ ...EJEMPLOS['documento.cargado'], tipo: 'text/html' }), false)
   const afil = compilar(await esquema('ciudadano-afiliado.v1.schema.json'))

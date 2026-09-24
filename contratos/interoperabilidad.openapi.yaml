@@ -1,10 +1,11 @@
 openapi: 3.1.0
 info:
   title: Interoperabilidad (MS-07)
-  version: 0.2.0
+  version: 0.3.0
   description: >
     Recibe los documentos que emiten las entidades (HU-05: RF-03.2, RF-03.3, RNF-05) y las peticiones de
-    documentos de las entidades al ciudadano (HU-07: RF-04.3, RF-04.4, RI-08). Como no existe
+    documentos de las entidades al ciudadano (HU-07: RF-04.3, RF-04.4, RI-08) y el envío del ciudadano a una entidad
+    sin operador por correo con enlaces temporales (HU-08: RF-04.1, RF-04.2, RF-03.4). Como no existe
     contrato MinTIC para esta interfaz (B-01), el operador define uno propio y lo dice aquí.
     La entidad se autentica firmando: cada solicitud lleva un JWS compacto (RS256 o ES256) cuyo
     `iss` es el emisor y cuyo payload repite `idExterno`, `cedula`, `titulo` y `sha256`; se verifica con
@@ -125,6 +126,93 @@ paths:
         '401': { $ref: '#/components/responses/Problema' }
         '404': { $ref: '#/components/responses/Problema' }
         '503': { $ref: '#/components/responses/Problema' }
+  /envios:
+    post:
+      operationId: enviarAEntidad
+      summary: El ciudadano envía documentos a una entidad no afiliada por correo (RF-04.1, RF-04.2)
+      description: >
+        Exige un Bearer JWT del emisor OIDC con audiencia `interoperabilidad` y `azp: portal`. El envío pasa por la
+        decisión de autorizaciones: MS-06 concede al correo (`correo:{dirección}`) la lectura de esos documentos, con la
+        vigencia de 72 horas. El correo lleva un enlace temporal por documento, nunca el archivo adjunto (B-14). Cada
+        enlace se resuelve en `/api/enlaces` y la custodia vuelve a consultar a MS-06 en cada apertura. Si el correo no
+        sale, el envío queda `pendiente` (202) y se reintenta con retroceso exponencial sin duplicar el envío, la
+        autorización ni el correo; tras 5 intentos queda `fallido`. Al entregarse se publica `envio.entregado`, que MS-09
+        confirma al ciudadano y MS-02 registra en la bitácora. Con la cabecera `Idempotency-Key`, repetir la solicitud
+        devuelve el mismo envío con 200. Un documento que no es del titular o no está en su Carpeta responde 422 sin
+        conceder ni enviar nada.
+      security: [{ bearer: [] }]
+      parameters:
+        - { name: Idempotency-Key, in: header, required: false, schema: { type: string, pattern: '^[\\w-]{1,64}$' } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [correo, documentos]
+              properties:
+                correo: { type: string, format: email, maxLength: 254, description: Correo de la entidad destinataria }
+                documentos:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  uniqueItems: true
+                  items: { type: string, format: uuid }
+      responses:
+        '201':
+          description: El correo salió hacia la entidad
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Envio' }
+        '202':
+          description: El correo no salió todavía; se reintenta solo
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Envio' }
+        '200':
+          description: Repetición con la misma `Idempotency-Key`
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Envio' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
+    get:
+      operationId: listarEnvios
+      summary: Envíos del titular, del más reciente al más antiguo (hasta 50)
+      security: [{ bearer: [] }]
+      responses:
+        '200':
+          description: Envíos con destinatario, documentos y estado
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Envio' }
+        '401': { $ref: '#/components/responses/Problema' }
+  /api/enlaces/{envioId}/{documentoId}:
+    get:
+      operationId: abrirEnlace
+      summary: El enlace del correo; redirige a una URL de lectura de 5 minutos
+      description: >
+        Sin sesión: la credencial es la firma `f` del enlace (HMAC del envío y el documento), que solo sirve para ese
+        documento de ese envío. Antes de redirigir la custodia consulta a MS-06 (RI-08) y registra el acceso. Firma
+        inválida o envío no entregado: 404. Pasadas las 72 horas: 410. Autorización retirada: 403. Custodia o
+        autorizaciones caídas: 503.
+      security: []
+      parameters:
+        - { name: envioId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: documentoId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: f, in: query, required: true, schema: { type: string, minLength: 32, maxLength: 32 } }
+      responses:
+        '302':
+          description: URL prefirmada de lectura en `Location`
+          headers:
+            Location: { schema: { type: string, format: uri } }
+        '403': { $ref: '#/components/responses/Problema' }
+        '404': { $ref: '#/components/responses/Problema' }
+        '410': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
   /salud:
     get:
       operationId: salud
@@ -141,8 +229,27 @@ paths:
                   estado: { type: string, const: ok }
 components:
   securitySchemes:
+    bearer: { type: http, scheme: bearer, bearerFormat: JWT }
     entidad: { type: http, scheme: bearer, bearerFormat: JWS, description: 'JWS compacto RS256 o ES256 con { iss, iat, exp }, vida máxima de 5 minutos' }
   schemas:
+    Envio:
+      type: object
+      required: [id, correo, documentos, estado, creado, venceEn]
+      properties:
+        id: { type: string, format: uuid }
+        correo: { type: string, format: email }
+        documentos:
+          type: array
+          items:
+            type: object
+            required: [id, titulo]
+            properties:
+              id: { type: string, format: uuid }
+              titulo: { type: string }
+        estado: { type: string, enum: [pendiente, entregado, fallido] }
+        creado: { type: string, format: date-time }
+        venceEn: { type: string, format: date-time, description: 'Fin de la vigencia de los enlaces (72 h)' }
+        entregadoEn: { type: string, format: date-time }
     Peticion:
       type: object
       required: [emisor, idExterno, cedula, proposito, documentos, firma]
@@ -159,7 +266,7 @@ components:
             type: object
             required: [titulo]
             properties:
-              titulo: { type: string, maxLength: 120, description: Qué documento se pide, en palabras }
+              titulo: { type: string, maxLength: 120, description: 'Qué documento se pide, en palabras' }
         firma: { type: string, description: 'JWS compacto cuyo payload es { iss, idExterno, cedula, proposito, pedidos: [títulos] }' }
     PeticionEstado:
       type: object

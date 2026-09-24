@@ -38,5 +38,7 @@ export function crearCustodia({ url, token, timeoutMs = 30_000 }) {
     verificar: (id) => llamar(`/interno/certificados/${id}/verificacion`),
     // URL de lectura de corta vida para un tercero; la custodia consulta a MS-06 antes de firmar (RI-08). 403 si no hay autorización vigente.
     leer: (l) => llamar('/interno/lecturas', l),
+    // Qué documentos de la lista son del titular y están en su Carpeta: { documentos: [{ id, titulo }] }.
+    comprobar: (c) => llamar('/interno/comprobacion', c),
   }
 }

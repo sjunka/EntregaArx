@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
   title: Autorizaciones (MS-06)
-  version: 0.1.0
+  version: 0.2.0
   description: >
     Decide si un documento puede salir hacia un tercero según el consentimiento del titular (HU-07: RF-04.3,
-    RF-04.4, RF-04.5, RI-08). Guarda las peticiones de las entidades y las autorizaciones del ciudadano; no
+    RF-04.4, RF-04.5, RI-08; HU-08: RF-04.1, RF-04.2). Guarda las peticiones de las entidades y las autorizaciones del ciudadano; no
     guarda documentos ni sus títulos (RD-11). La custodia (MS-04) le pregunta antes de firmar cualquier URL de
     lectura para un tercero y, si MS-06 no responde, no firma. Las rutas del ciudadano exigen un Bearer JWT del
     emisor OIDC con audiencia `autorizaciones` y `azp: portal`; las `/interno/*` exigen un token de servicio
@@ -176,6 +176,46 @@ paths:
         '401': { $ref: '#/components/responses/Problema' }
         '403': { $ref: '#/components/responses/Problema' }
         '404': { $ref: '#/components/responses/Problema' }
+  /interno/autorizaciones:
+    post:
+      operationId: concederAEnvio
+      summary: La interoperabilidad concede a un correo la lectura de los documentos de un envío (HU-08)
+      description: >
+        Solo `azp` interoperabilidad. Enviar documentos a una entidad sin operador es la decisión del titular de
+        compartirlos con ese correo: una autorización por documento, con la misma vigencia que las de una petición
+        (72 h) y revocable con `DELETE /autorizaciones/{id}`. El tercero se escribe `correo:{dirección}`.
+      security: [{ servicio: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cedula, tercero, documentos]
+              properties:
+                cedula: { type: string, pattern: '^[0-9]{6,10}$' }
+                tercero: { type: string, maxLength: 254, pattern: '^correo:.+@.+' }
+                documentos:
+                  type: array
+                  minItems: 1
+                  maxItems: 10
+                  uniqueItems: true
+                  items: { type: string, format: uuid }
+      responses:
+        '201':
+          description: Autorizaciones concedidas, una por documento
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [autorizaciones]
+                properties:
+                  autorizaciones:
+                    type: array
+                    items: { $ref: '#/components/schemas/Autorizacion' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
   /interno/decisiones:
     post:
       operationId: decidir

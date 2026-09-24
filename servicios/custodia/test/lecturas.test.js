@@ -124,3 +124,25 @@ test('el cliente de MS-06 pide la decisión con su token de servicio y falla si 
     await assert.rejects(crearAutorizaciones({ url: 'http://127.0.0.1:1', token: async () => 't', timeoutMs: 500 }).decidir({}), /./)
   } finally { srv.close() }
 })
+
+// HU-08: antes de conceder un envío, la interoperabilidad comprueba qué documentos son del titular y están en su Carpeta.
+test('la comprobación devuelve título de los documentos del titular que están en la Carpeta y omite el resto', () => {
+  const documentos = repositorioEnMemoria()
+  const propio = conDocumento(documentos)
+  const certificado = conDocumento(documentos, { clase: 'certificado', estado: 'vigente', titulo: 'Diploma' })
+  const ajeno = conDocumento(documentos, { titular: '2000000002' })
+  const pendiente = conDocumento(documentos, { estado: 'pendiente' })
+  const eliminado = conDocumento(documentos, { estado: 'eliminado' })
+  const sustituido = conDocumento(documentos, { estado: 'sustituido', titulo: 'Sustituido' })
+  return conServicio(async ({ pedir }) => {
+    const comprobar = (cuerpo, servicio = true) => pedir('/interno/comprobacion', { metodo: 'POST', cuerpo, servicio })
+    const r = await comprobar({ cedula: CEDULA, documentos: [propio, certificado, ajeno, pendiente, eliminado, nuevoId(), sustituido] })
+    assert.equal(r.status, 200)
+    assert.deepEqual(r.cuerpo.documentos, [{ id: propio, titulo: 'Diploma de Ingeniería' }, { id: certificado, titulo: 'Diploma' }, { id: sustituido, titulo: 'Sustituido' }])
+    assert.equal((await comprobar({ cedula: CEDULA, documentos: [] })).status, 422)
+    assert.equal((await comprobar({ cedula: CEDULA, documentos: ['no-es-uuid'] })).status, 422)
+    assert.equal((await comprobar({ cedula: 'abc', documentos: [propio] })).status, 422)
+    assert.equal((await comprobar({ cedula: CEDULA, documentos: [propio] }, 'otro-servicio')).status, 403)
+    assert.equal((await pedir('/interno/comprobacion', { metodo: 'POST', cuerpo: { cedula: CEDULA, documentos: [propio] } })).status, 403, 'un ciudadano no')
+  }, { documentos })
+})

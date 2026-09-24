@@ -23,6 +23,11 @@ export function crearAutorizaciones({ url, token, timeoutMs = 15_000 }) {
       const { status, ...r } = await llamar('POST', '/interno/peticiones', p)
       return { ...r, existente: status === 200 }
     },
+    // HU-08: el envío del ciudadano a un correo concede a ese tercero la lectura de los documentos.
+    conceder: async (c) => {
+      const { status, ...r } = await llamar('POST', '/interno/autorizaciones', c)
+      return r
+    },
     // { id, estado, autorizaciones: [{ id, documentoId, venceEn }] }; 404 si la petición no es de esa entidad.
     consultarPeticion: async (id, entidad) => {
       const { status, ...r } = await llamar('GET', `/interno/peticiones/${id}?entidad=${encodeURIComponent(entidad)}`)

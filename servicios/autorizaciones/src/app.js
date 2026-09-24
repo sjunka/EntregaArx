@@ -81,6 +81,21 @@ export function crearApp({ repo, verificar, origenes = [], ahora = () => new Dat
     } catch (e) { next(e) }
   })
 
+  // HU-08: el envío del ciudadano a una entidad sin operador es su decisión de compartir esos documentos con ese correo.
+  interno.post('/autorizaciones', solo('interoperabilidad'), async (req, res, next) => {
+    const { cedula, tercero, documentos } = req.body ?? {}
+    if (!/^[0-9]{6,10}$/.test(cedula ?? '') || !/^correo:.+@.+/.test(tercero ?? '') || tercero.length > 254) {
+      return problema(res, 422, 'Autorización inválida', 'Se exigen la cédula del titular y el tercero como correo:{dirección}.')
+    }
+    if (!Array.isArray(documentos) || !documentos.length || documentos.length > MAX_PEDIDOS || !documentos.every(esUuid) || new Set(documentos).size !== documentos.length) {
+      return problema(res, 422, 'Autorización inválida', `Indica entre 1 y ${MAX_PEDIDOS} documentos, sin repetirlos.`)
+    }
+    try {
+      const filas = await repo.conceder({ cedula, tercero, documentos, venceEn: venceEn() })
+      res.status(201).json({ autorizaciones: filas.map(aAutorizacion) })
+    } catch (e) { next(e) }
+  })
+
   interno.post('/decisiones', solo('custodia'), async (req, res, next) => {
     const { cedula, documentoId, tercero } = req.body ?? {}
     if (!/^[0-9]{6,10}$/.test(cedula ?? '') || !esUuid(documentoId) || !texto(tercero, 254)) {

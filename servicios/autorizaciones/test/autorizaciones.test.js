@@ -130,3 +130,26 @@ test('cada ruta exige el tipo de cliente que le corresponde', () => conServicio(
   assert.equal((await pedir('/interno/decisiones', { metodo: 'POST', cuerpo: {}, servicio: 'interoperabilidad' })).status, 403, 'solo la custodia decide')
   assert.equal((await pedir('/interno/peticiones', { metodo: 'POST', cuerpo: PETICION, servicio: 'custodia' })).status, 403, 'la custodia no crea peticiones')
 }))
+
+// HU-08: el ciudadano que envía documentos a una entidad no afiliada los autoriza para ese correo; el envío pasa por aquí.
+test('la interoperabilidad concede al correo destinatario las autorizaciones de un envío, con la misma vigencia', () => conServicio(async ({ pedir, repo }) => {
+  const conceder = (cuerpo, servicio = 'interoperabilidad') => pedir('/interno/autorizaciones', { metodo: 'POST', cuerpo, servicio })
+  const r = await conceder({ cedula: CEDULA, tercero: 'correo:tramites@entidad.co', documentos: [D1, D2] })
+  assert.equal(r.status, 201)
+  assert.deepEqual(r.cuerpo.autorizaciones.map((a) => a.documentoId), [D1, D2])
+  assert.equal(r.cuerpo.autorizaciones[0].venceEn, new Date(Date.parse('2026-09-24T10:00:00Z') + 72 * HORA).toISOString())
+  assert.ok(await repo.decidir({ cedula: CEDULA, documentoId: D1, tercero: 'correo:tramites@entidad.co' }))
+  assert.equal(await repo.decidir({ cedula: CEDULA, documentoId: D1, tercero: 'correo:otro@entidad.co' }), null, 'solo ese correo')
+
+  for (const cuerpo of [
+    { cedula: CEDULA, tercero: 'tramites@entidad.co', documentos: [D1] },
+    { cedula: CEDULA, tercero: 'correo:', documentos: [D1] },
+    { cedula: 'abc', tercero: 'correo:a@b.co', documentos: [D1] },
+    { cedula: CEDULA, tercero: 'correo:a@b.co', documentos: [] },
+    { cedula: CEDULA, tercero: 'correo:a@b.co', documentos: ['no-es-uuid'] },
+    { cedula: CEDULA, tercero: 'correo:a@b.co', documentos: [D1, D1] },
+    { cedula: CEDULA, tercero: 'correo:a@b.co', documentos: Array.from({ length: 11 }, () => nuevoId()) },
+  ]) assert.equal((await conceder(cuerpo)).status, 422, JSON.stringify(cuerpo).slice(0, 80))
+  assert.equal((await conceder({ cedula: CEDULA, tercero: 'correo:a@b.co', documentos: [D1] }, 'custodia')).status, 403, 'la custodia decide, no concede')
+  assert.equal((await pedir('/interno/autorizaciones', { metodo: 'POST', cuerpo: { cedula: CEDULA, tercero: 'correo:a@b.co', documentos: [D1] } })).status, 403, 'un ciudadano no concede por esta ruta')
+}))

@@ -2,6 +2,9 @@ import pg from 'pg'
 import { createRemoteJWKSet } from 'jose'
 import { Kafka, Partitioners } from 'kafkajs'
 import { crearApp } from './app.js'
+import { crearVerificador } from './auth.js'
+import { crearCorreo } from './correo.js'
+import { crearEntregador, crearRepoEnvios, iniciarReintentos, migrarEnvios, rutasEnvios } from './envios.js'
 import { crearAutorizaciones } from './autorizaciones.js'
 import { crearCustodia, crearProveedorToken } from './custodia.js'
 import { crearBandeja, crearPublicador, crearRegistro, iniciarRelevo } from '@mcs/eventos'
@@ -16,6 +19,7 @@ const log = (nivel, mensaje, extra = {}) => console.log(JSON.stringify({ nivel, 
 if (process.argv.includes('--migrar')) {
   // RD-10: las migraciones corren como proceso aparte, nunca al arrancar el servicio.
   await bandeja.migrar()
+  await migrarEnvios(db)
   log('info', 'migración de interoperabilidad aplicada')
   await db.end()
 } else {
@@ -30,11 +34,24 @@ if (process.argv.includes('--migrar')) {
   iniciarRelevo({ bandeja, log, publicar: crearPublicador({ productor, registro: crearRegistro(env.SCHEMA_REGISTRY_URL), urlRegistro: env.SCHEMA_REGISTRY_URL }) })
 
   const token = crearProveedorToken({ url: env.OIDC_INTERNO_URL, clientId: 'interoperabilidad', secreto: env.KC_INTEROP_SECRETO })
+  // HU-08: envío a una entidad sin operador. Los enlaces del correo apuntan a este servicio (ENLACES_URL, la URL que ve la entidad).
+  const repoEnvios = crearRepoEnvios(db, bandeja)
+  const entregador = crearEntregador({
+    repo: repoEnvios, baseUrl: env.ENLACES_URL, secreto: env.ENLACE_SECRETO,
+    correo: crearCorreo({ url: env.SMTP_URL, remitente: env.CORREO_REMITENTE ?? 'Mi Carpeta Segura <envios@carpetacolombia.co>' }),
+  })
+  iniciarReintentos({ entregador, log })
+  const autorizaciones = crearAutorizaciones({ url: env.AUTORIZACIONES_URL, token })
+  const custodia = crearCustodia({ url: env.CUSTODIA_URL, token })
   const app = crearApp({
+    envios: rutasEnvios({
+      repo: repoEnvios, entregador, custodia, autorizaciones, secreto: env.ENLACE_SECRETO, horas: Number(env.AUTORIZACION_HORAS ?? 72),
+      verificar: crearVerificador({ issuer: env.OIDC_ISSUER, jwks: createRemoteJWKSet(new URL(env.OIDC_JWKS_URL)) }),
+    }),
+    origenes: (env.ORIGENES ?? '').split(',').filter(Boolean),
     firmas: crearVerificadorFirmas({ emisores }),
     pasarela: crearPasarela({ url: env.PASARELA_URL }),
-    custodia: crearCustodia({ url: env.CUSTODIA_URL, token }),
-    autorizaciones: crearAutorizaciones({ url: env.AUTORIZACIONES_URL, token }),
+    custodia, autorizaciones,
     bandeja,
     operador: env.OPERADOR_NOMBRE ?? 'Mi Carpeta Segura',
   })

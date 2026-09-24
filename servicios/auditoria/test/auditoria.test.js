@@ -5,6 +5,7 @@ import { MongoClient } from 'mongodb'
 import { crearApp } from '../src/app.js'
 import { crearVerificador } from '../src/auth.js'
 import { crearRepo } from '../src/mongo.js'
+import { registrosDeEnvio } from '../src/envios.js'
 
 // HU-06 · MS-02 auditoría solo-append. RF-02.7 el acceso queda registrado; RNF-14 la bitácora no se puede alterar.
 const EMISOR = 'http://localhost:8081/realms/carpeta'
@@ -68,6 +69,34 @@ test('agregar es idempotente por evento y listar solo devuelve los del titular, 
     await repo.agregar({ ...base, eventoId: 'e3', cedula: '2000000002', ocurridoEn: '2026-09-24T12:00:00Z' })
     const lista = await repo.listar('1012345678')
     assert.deepEqual(lista.map((a) => [a.accion, a.actor.tipo]), [['lectura-tercero', 'tercero'], ['descarga', 'titular']])
+    await db.dropDatabase()
+  } finally { await cliente.close() }
+})
+
+test('un envío entregado deja un registro por documento, con el titular como actor y el correo como destino', () => {
+  const envio = { id: 'ce-1', datos: { id: 'e1', cedula: '1012345678', correo: 'tramites@entidad.co', documentos: [{ id: 'd1', titulo: 'Cédula' }, { id: 'd2', titulo: 'Diploma' }], entregadoEn: '2026-09-24T10:00:00Z' } }
+  const filas = registrosDeEnvio(envio)
+  assert.deepEqual(filas.map((f) => [f.eventoId, f.documentoId, f.titulo]), [['ce-1:d1', 'd1', 'Cédula'], ['ce-1:d2', 'd2', 'Diploma']])
+  assert.deepEqual(filas[0], {
+    eventoId: 'ce-1:d1', documentoId: 'd1', cedula: '1012345678', titulo: 'Cédula', accion: 'envio',
+    actor: { tipo: 'titular', id: '1012345678' }, destino: 'correo:tramites@entidad.co', ocurridoEn: '2026-09-24T10:00:00Z',
+  })
+})
+
+test('la bitácora conserva el destino de un envío y lo devuelve al titular', { skip: !process.env.MONGO_URL_TEST }, async () => {
+  const cliente = await new MongoClient(process.env.MONGO_URL_TEST).connect()
+  try {
+    const db = cliente.db('auditoria_test_envio')
+    await db.dropDatabase()
+    const repo = crearRepo(db)
+    await repo.indices()
+    for (const r of registrosDeEnvio({ id: 'ce-1', datos: { id: 'e1', cedula: '1012345678', correo: 'tramites@entidad.co', documentos: [{ id: 'd1', titulo: 'Cédula' }], entregadoEn: '2026-09-24T10:00:00Z' } })) {
+      await repo.agregar(r)
+      await repo.agregar(r)
+    }
+    const lista = await repo.listar('1012345678')
+    assert.equal(lista.length, 1)
+    assert.deepEqual([lista[0].accion, lista[0].destino], ['envio', 'correo:tramites@entidad.co'])
     await db.dropDatabase()
   } finally { await cliente.close() }
 })

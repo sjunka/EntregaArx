@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Bell, FolderLock, Inbox, LogIn, LogOut, UserPlus } from 'lucide-react'
+import { Bell, FolderLock, Inbox, LogIn, LogOut, Send, UserPlus } from 'lucide-react'
 import { sesion } from './sesion.js'
 import Tema from './Tema.jsx'
 import Registro from './Registro.jsx'
@@ -7,6 +7,7 @@ import Carpeta from './Carpeta.jsx'
 import Subir from './Subir.jsx'
 import Avisos from './Avisos.jsx'
 import Solicitudes from './Solicitudes.jsx'
+import Enviar from './Enviar.jsx'
 
 // Una sola promesa: StrictMode corre el efecto dos veces y el código de ingreso solo se canjea una vez.
 const inicial = new URLSearchParams(window.location.search).has('code')
@@ -40,6 +41,7 @@ export default function App() {
   else if (usuario && hash === 'subir') contenido = <Subir alVencer={alVencer} />
   else if (usuario && hash === 'avisos') contenido = <Avisos alVencer={alVencer} />
   else if (usuario && hash === 'solicitudes') contenido = <Solicitudes alVencer={alVencer} />
+  else if (usuario && hash === 'enviar') contenido = <Enviar alVencer={alVencer} />
   else if (usuario) contenido = <Carpeta nombre={usuario.profile.given_name} alVencer={alVencer} />
   else if (hash === 'registro') contenido = <Registro />
   else contenido = <Bienvenida fallo={fallo} vencida={vencida} />
@@ -62,6 +64,9 @@ export default function App() {
           <Tema />
           {usuario ? (
             <>
+              <a className="btn-secundario" href="#enviar">
+                <Send size={20} strokeWidth={1.75} aria-hidden="true" /> Enviar
+              </a>
               <a className="btn-secundario" href="#solicitudes">
                 <Inbox size={20} strokeWidth={1.75} aria-hidden="true" /> Solicitudes
               </a>

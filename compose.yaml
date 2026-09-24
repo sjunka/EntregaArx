@@ -266,6 +266,9 @@ services:
       esquemas: { condition: service_completed_successfully }
       custodia: { condition: service_healthy }
       pasarela: { condition: service_healthy }
+      autorizaciones: { condition: service_healthy }
+      identidad: { condition: service_healthy }
+      mailpit: { condition: service_started }
     environment:
       DATABASE_URL: postgres://postgres:${PG_CLAVE}@postgres/interoperabilidad
       KAFKA_BROKERS: kafka:9092
@@ -277,6 +280,13 @@ services:
       KC_INTEROP_SECRETO: ${KC_INTEROP_SECRETO}
       # Directorio de entidades emisoras y su llave pública (id=urlJWKS;id=urlJWKS).
       EMISORES: universidad-demo=http://entidad:8080/.well-known/jwks.json
+      # HU-08: correo a la entidad sin operador con enlaces que apuntan aquí (la URL que ve quien abre el correo).
+      SMTP_URL: smtp://mailpit:1025
+      ENLACES_URL: http://localhost:8086
+      ENLACE_SECRETO: ${ENLACE_SECRETO:?copia .env.example a .env}
+      OIDC_ISSUER: http://localhost:8081/realms/carpeta
+      OIDC_JWKS_URL: http://identidad:8080/realms/carpeta/protocol/openid-connect/certs
+      ORIGENES: http://localhost:4173,http://localhost:5173
     ports: ["8086:8080"]
 
   notificaciones:
@@ -345,6 +355,7 @@ services:
         VITE_MCS_INDICE: http://localhost:8091
         VITE_MCS_AUDITORIA: http://localhost:8092
         VITE_MCS_AUTORIZACIONES: http://localhost:8093
+        VITE_MCS_INTEROPERABILIDAD: http://localhost:8086
     restart: unless-stopped
     depends_on: { identidad: { condition: service_healthy } }
     ports: ["4173:80"]

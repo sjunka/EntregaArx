@@ -21,9 +21,16 @@ export function validarEmision(e = {}) {
 }
 
 // dependencias: custodia (registrar, verificar, leer), autorizaciones (crearPeticion, consultarPeticion), pasarela (consultar),
-// bandeja (encolar), firmas (conoce, verificar, verificarFirma, verificarToken).
-export function crearApp({ custodia, autorizaciones, pasarela, bandeja, firmas, operador = 'Mi Carpeta Segura' }) {
+// bandeja (encolar), firmas (conoce, verificar, verificarFirma, verificarToken), envios ({ ciudadano, publico } de rutasEnvios, HU-08).
+export function crearApp({ custodia, autorizaciones, pasarela, bandeja, firmas, envios, origenes = [], operador = 'Mi Carpeta Segura' }) {
   const app = express()
+  app.use((req, res, next) => {
+    const o = req.headers.origin
+    if (o && origenes.includes(o)) {
+      res.set({ 'access-control-allow-origin': o, 'access-control-allow-headers': 'authorization, content-type, idempotency-key', 'access-control-allow-methods': 'GET, POST', vary: 'origin' })
+    }
+    req.method === 'OPTIONS' ? res.sendStatus(204) : next()
+  })
   // RI-06: aquí solo entran metadatos y una firma; el archivo sube directo al almacén.
   app.use(express.json({ limit: '8kb' }))
 
@@ -77,6 +84,10 @@ export function crearApp({ custodia, autorizaciones, pasarela, bandeja, firmas, 
     }
   })
 
+  if (envios) {
+    app.use('/envios', envios.ciudadano)
+    app.use('/api/enlaces', envios.publico)
+  }
   app.use('/api/peticiones', rutasPeticiones({ firmas, pasarela, autorizaciones, custodia, operador }))
 
   app.use((err, _req, res, _next) => {

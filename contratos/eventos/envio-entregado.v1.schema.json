@@ -1,0 +1,36 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mcs.example/contratos/eventos/envio-entregado.v1.schema.json",
+  "title": "Envío entregado (data de un CloudEvent 1.0)",
+  "description": "MS-07 publica este hecho cuando el correo con los enlaces temporales de un envío a una entidad no afiliada salió hacia su destinatario (HU-08). MS-09 lo consume para confirmar la entrega al ciudadano y MS-02 lo agrega a la bitácora de accesos. Lleva los títulos de los documentos y el correo del destinatario, nunca su contenido ni los enlaces.",
+  "x-cloudevent": {
+    "type": "co.carpetasegura.envio.entregado",
+    "source": "/mcs/interoperabilidad",
+    "subject": "envio/{cedula}",
+    "tema": "mcs.envio.entregado",
+    "sujetoRegistro": "mcs.envio.entregado-value"
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "cedula", "correo", "documentos", "entregadoEn"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid", "description": "Identificador del envío en MS-07" },
+    "cedula": { "type": "string", "pattern": "^[0-9]{6,10}$", "description": "Titular que envió" },
+    "correo": { "type": "string", "format": "email", "description": "Correo de la entidad destinataria" },
+    "documentos": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "titulo"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "titulo": { "type": "string", "minLength": 1, "maxLength": 120 }
+        }
+      }
+    },
+    "entregadoEn": { "type": "string", "format": "date-time" }
+  }
+}
