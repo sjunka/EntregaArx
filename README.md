@@ -65,6 +65,21 @@ Cambiar a Keycloak es solo cambiar variables de entorno:
 | `KC_CUSTODIA_SECRETO` | identidad y custodia | cliente de servicio `custodia` (client credentials hacia autorizaciones, RI-08) |
 | `KEYCLOAK_URL`, `KEYCLOAK_SECRETO` | afiliación | `http://identidad:8080`, `KC_AFILIACION_SECRETO` |
 
+## Despliegue en GCP (ADR-0015)
+
+Variante económica en `mcs-entrega-2026` (us-east1): 10 servicios y Keycloak en Cloud Run, Cloud SQL `db-f1-micro`, VM `e2-small` con Kafka y Schema Registry, MongoDB Atlas M0 y la SPA en GitHub Pages (https://sjunka.github.io/EntregaArx/). Detalle en `docs/despliegue-gcp.md`.
+
+```sh
+source .env.atlas && export MONGODB_ATLAS_PUBLIC_KEY MONGODB_ATLAS_PRIVATE_KEY
+infra/gcp/desplegar.sh mcs-entrega-2026        # APIs, imágenes, migraciones, esquemas y apply completo
+terraform -chdir=infra/terraform output urls   # URL públicas; copiarlas a las variables VITE_* del repo
+gh workflow run pages.yml                       # publica la SPA
+cd e2e && SMOKE_URLS="$(terraform -chdir=../infra/terraform output -json urls)" \
+  USUARIO_DEMO_CLAVE=$(terraform -chdir=../infra/terraform output -raw usuario_demo_clave) \
+  BASE_URL=https://sjunka.github.io/EntregaArx/ npx playwright test smoke-gcp
+terraform -chdir=infra/terraform destroy        # apagar (el proyecto Atlas y su llave se borran aparte)
+```
+
 ## Trazabilidad
 
 | Entrega | Realiza |

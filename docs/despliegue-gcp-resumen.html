@@ -1,0 +1,97 @@
+<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Despliegue en GCP</title>
+<style>
+@page{size:A4;margin:14mm}
+body{font:10.5pt/1.4 system-ui,sans-serif;color:#1a1a1a}
+h1{font-size:17pt;margin:0 0 2px}h2{font-size:12pt;margin:14px 0 4px;color:#0b4f8a}
+.sub{color:#555;margin:0 0 8px}
+pre{background:#f3f5f8;border:1px solid #d8dde4;padding:8px;font-size:8.6pt;white-space:pre-wrap;margin:4px 0}
+ul{margin:4px 0;padding-left:18px}li{margin:2px 0}
+svg text{font-family:system-ui,sans-serif}
+.pb{page-break-before:always}
+table{border-collapse:collapse;font-size:9.5pt}td,th{border:1px solid #ccd;padding:3px 7px;text-align:left}
+</style></head><body>
+<h1>Mi Carpeta Segura: despliegue en GCP</h1>
+<p class="sub">Ticket #16, variante económica (ADR-0015). Proyecto <code>mcs-entrega-2026</code>, región us-east1. Estado: desplegado, smoke 12/12 en verde.</p>
+
+<h2>Arquitectura desplegada</h2>
+<svg viewBox="0 0 720 300" width="100%">
+<defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#555"/></marker></defs>
+<g font-size="12">
+<rect x="10" y="20" width="150" height="50" rx="6" fill="#e8f1fb" stroke="#0b4f8a"/><text x="85" y="42" text-anchor="middle" font-weight="600">SPA (React)</text><text x="85" y="58" text-anchor="middle" font-size="10">GitHub Pages</text>
+<rect x="10" y="200" width="150" height="50" rx="6" fill="#e8f1fb" stroke="#0b4f8a"/><text x="85" y="222" text-anchor="middle" font-weight="600">Keycloak</text><text x="85" y="238" text-anchor="middle" font-size="10">Cloud Run, realm carpeta</text>
+<rect x="230" y="10" width="220" height="270" rx="8" fill="#fff" stroke="#888" stroke-dasharray="4 3"/><text x="340" y="30" text-anchor="middle" font-weight="600">Cloud Run (10 servicios)</text>
+<text x="340" y="55" text-anchor="middle" font-size="10.5">pasarela · afiliación · autorizaciones</text>
+<text x="340" y="72" text-anchor="middle" font-size="10.5">premium · custodia · interoperabilidad</text>
+<text x="340" y="89" text-anchor="middle" font-size="10.5">notificaciones · índice · auditoría</text>
+<text x="340" y="106" text-anchor="middle" font-size="10.5">analítica</text>
+<text x="340" y="150" text-anchor="middle" font-size="10" fill="#555">Direct VPC egress</text>
+<text x="340" y="164" text-anchor="middle" font-size="10" fill="#555">subred 10.10.0.0/24</text>
+<rect x="520" y="20" width="190" height="50" rx="6" fill="#eef7ee" stroke="#2e7d32"/><text x="615" y="42" text-anchor="middle" font-weight="600">Cloud SQL Postgres</text><text x="615" y="58" text-anchor="middle" font-size="10">db-f1-micro, IP privada</text>
+<rect x="520" y="115" width="190" height="55" rx="6" fill="#fff4e5" stroke="#e67e00"/><text x="615" y="137" text-anchor="middle" font-weight="600">VM mcs-kafka (e2-small)</text><text x="615" y="153" text-anchor="middle" font-size="10">Kafka :9092 · Schema Reg. :8081</text>
+<rect x="520" y="215" width="190" height="50" rx="6" fill="#eef7ee" stroke="#2e7d32"/><text x="615" y="237" text-anchor="middle" font-weight="600">MongoDB Atlas M0</text><text x="615" y="253" text-anchor="middle" font-size="10">índice y auditoría</text>
+</g>
+<g stroke="#555" fill="none" marker-end="url(#a)">
+<path d="M160 45H228"/><path d="M85 70V198"/><path d="M160 225H228"/>
+<path d="M450 45H518"/><path d="M450 142H518"/><path d="M450 240H518"/>
+</g>
+<text x="195" y="38" font-size="9.5" text-anchor="middle">HTTPS</text><text x="92" y="140" font-size="9.5">OIDC + PKCE</text>
+<text x="484" y="136" font-size="9.5" text-anchor="middle">firewall</text>
+</svg>
+
+<h2>Flujo de <code>infra/gcp/desplegar.sh</code></h2>
+<svg viewBox="0 0 720 70" width="100%"><g font-size="10.5" text-anchor="middle">
+<defs><marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#555"/></marker></defs>
+<g fill="#f3f5f8" stroke="#0b4f8a"><rect x="0" y="10" width="125" height="48" rx="5"/><rect x="148" y="10" width="125" height="48" rx="5"/><rect x="296" y="10" width="125" height="48" rx="5"/><rect x="444" y="10" width="125" height="48" rx="5"/><rect x="592" y="10" width="125" height="48" rx="5"/></g>
+<text x="62" y="31">1. APIs y</text><text x="62" y="45">Artifact Registry</text>
+<text x="210" y="31">2. Cloud Build</text><text x="210" y="45">12 imágenes</text>
+<text x="358" y="31">3. SQL, VM, firewall,</text><text x="358" y="45">jobs de migración</text>
+<text x="506" y="31">4. Job mcs-esquemas</text><text x="506" y="45">(10 reintentos)</text>
+<text x="654" y="31">5. apply completo</text><text x="654" y="45">servicios y Keycloak</text>
+<g stroke="#555" marker-end="url(#b)"><path d="M125 34H146"/><path d="M273 34H294"/><path d="M421 34H442"/><path d="M569 34H590"/></g></g></svg>
+
+<h2>Qué se hizo</h2>
+<ul>
+<li>Diagnóstico: el job <code>mcs-esquemas</code> daba <code>UND_ERR_CONNECT_TIMEOUT</code> contra <code>10.10.0.2:8081</code>. Faltaba la firewall <code>mcs-kafka</code> en la red <code>mcs</code>, porque el apply parcial del paso 3 no la incluía.</li>
+<li>Corrección (commit 8bf6c20): <code>desplegar.sh</code> crea la firewall en el paso 3 y aplica con <code>-auto-approve</code>.</li>
+<li>Apply completo: 10 servicios responden 200 en <code>/salud</code>. El emisor de Keycloak coincide con <code>…/realms/carpeta</code>.</li>
+<li>SPA: repo hecho público (Pages no funciona en repos privados del plan gratuito), variables <code>VITE_*</code> fijadas y workflow <code>pages</code> ejecutado.</li>
+<li>Smoke <code>e2e/smoke-gcp.spec.js</code>: 12/12, incluye el ingreso del ciudadano demo con Keycloak y axe. Ticket #16 cerrado.</li>
+</ul>
+
+<h2 class="pb">Comandos</h2>
+<pre># Credenciales de Atlas (no versionadas)
+source .env.atlas && export MONGODB_ATLAS_PUBLIC_KEY MONGODB_ATLAS_PRIVATE_KEY
+
+# Despliegue completo
+infra/gcp/desplegar.sh mcs-entrega-2026
+terraform -chdir=infra/terraform output urls
+
+# Verificación manual
+curl https://mcs-pasarela-679270359263.us-east1.run.app/salud
+curl https://mcs-keycloak-679270359263.us-east1.run.app/realms/carpeta/.well-known/openid-configuration
+
+# SPA en GitHub Pages
+gh variable set VITE_OIDC_AUTHORITY -b "$(terraform -chdir=infra/terraform output -json urls | jq -r .emisor)"
+gh workflow run pages.yml
+
+# Smoke
+cd e2e && SMOKE_URLS="$(terraform -chdir=../infra/terraform output -json urls)" \
+  USUARIO_DEMO_CLAVE=$(terraform -chdir=../infra/terraform output -raw usuario_demo_clave) \
+  BASE_URL=https://sjunka.github.io/EntregaArx/ npx playwright test smoke-gcp
+
+# Diagnóstico de la VM de Kafka
+gcloud compute instances get-serial-port-output mcs-kafka --zone us-east1-b
+gcloud logging read 'resource.labels.job_name="mcs-esquemas"' --limit 10
+
+# Apagar todo (el proyecto Atlas y su llave se borran aparte)
+terraform -chdir=infra/terraform destroy</pre>
+
+<h2>URL públicas</h2>
+<table><tr><th>Recurso</th><th>URL</th></tr>
+<tr><td>SPA</td><td>https://sjunka.github.io/EntregaArx/</td></tr>
+<tr><td>Keycloak (emisor)</td><td>https://mcs-keycloak-679270359263.us-east1.run.app/realms/carpeta</td></tr>
+<tr><td>Servicios</td><td>https://mcs-&lt;servicio&gt;-679270359263.us-east1.run.app</td></tr></table>
+
+<h2>Costo</h2>
+<p>Estimado con precios de lista: unos 3 USD al día (Cloud Run 1,6; VM 0,6; Cloud SQL 0,4; resto menor). El costo medido queda pendiente: la facturación de GCP tarda unas 24 h en reflejarse. El despliegue sigue encendido.</p>
+</body></html>
