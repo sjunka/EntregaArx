@@ -63,10 +63,11 @@ table{border-collapse:collapse;font-size:9.5pt}td,th{border:1px solid #ccd;paddi
 <li>Con permiso explícito, la pasarela corre con <code>GOVCARPETA_ESCRITURA=1</code>. Con el valor <code>0</code> el registro fallaba con 503, y con él la carga y la autenticación.</li>
 <li>Registro: HU-01 en verde. <code>validateCitizen</code> devuelve «Mi Carpeta Segura».</li>
 <li>Ingreso: HU-02 con OIDC y PKCE en verde.</li>
-<li>Carga: el binario sube por URL prefirmada a Cloud Storage y el índice lo recibe por Kafka en unos 3 s. Pendiente: la SPA lee la lista antes de que llegue el evento y hay que recargar para ver el documento.</li>
+<li>Carga: el binario sube por URL prefirmada a Cloud Storage y el índice lo recibe por Kafka en unos 3 s. La SPA espera a que el índice tenga el documento antes de volver a la carpeta.</li>
 <li>Autenticación: GovCarpeta responde «autenticación exitosa [Code: 0001]» en 315 ms.</li>
 <li>Las cédulas de prueba (<code>98…</code>, <code>99…</code> y <code>1000000001</code>) quedan registradas en GovCarpeta a propósito, para pruebas del equipo.</li>
-<li>Pendientes: tema propio de Keycloak (hoy sale el tema por defecto en inglés) y devolver <code>LIMITE_REGISTROS_HORA</code> de 30 a 5 en afiliación.</li>
+<li>Keycloak de GCP en español (realm con <code>defaultLocale</code> <code>es</code>) y límite de registros de afiliación en 5 por hora.</li>
+<li>En GCP, HU-03 y HU-04 recorren toda la interfaz. Solo fallan dos aserciones pensadas para compose: la URL de MinIO local y el texto del doble de GovCarpeta.</li>
 </ul>
 
 <h2 class="pb">Comandos</h2>
