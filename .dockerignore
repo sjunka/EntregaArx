@@ -1,0 +1,7 @@
+**/node_modules
+**/test
+.git
+e2e
+web
+identidad
+infra

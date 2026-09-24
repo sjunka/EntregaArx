@@ -3,7 +3,7 @@ import { createRemoteJWKSet } from 'jose'
 import { Kafka, Partitioners } from 'kafkajs'
 import { crearApp } from './app.js'
 import { crearCustodia, crearProveedorToken } from './custodia.js'
-import { crearBandeja, crearPublicador, crearRegistro, iniciarRelevo } from './eventos.js'
+import { crearBandeja, crearPublicador, crearRegistro, iniciarRelevo } from '@mcs/eventos'
 import { crearVerificadorFirmas } from './firma.js'
 import { crearPasarela } from './pasarela.js'
 

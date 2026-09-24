@@ -6,9 +6,13 @@ import addFormats from 'ajv-formats'
 // Eventos de dominio como CloudEvents 1.0 sobre Kafka, en modo binario (atributos en cabeceras ce_*) y con la data
 // serializada contra Schema Registry (JSON Schema). Los esquemas viven en contratos/eventos y un trabajo de compose
 // los registra; el test de contrato comprueba que este mapa coincide con ellos.
-// ponytail: copia idéntica en afiliacion, interoperabilidad y notificaciones; extraer a un paquete si aparece un cuarto.
+// Paquete compartido @mcs/eventos (ADR-0018): lo usan los productores y consumidores del bus.
 export const EVENTOS = {
   'documento.recibido': { tipo: 'co.carpetasegura.documento.recibido', fuente: '/mcs/interoperabilidad', tema: 'mcs.documento.recibido', sujeto: 'mcs.documento.recibido-value' },
+  'documento.cargado': { tipo: 'co.carpetasegura.documento.cargado', fuente: '/mcs/custodia', tema: 'mcs.documento.cargado', sujeto: 'mcs.documento.cargado-value' },
+  'documento.autenticado': { tipo: 'co.carpetasegura.documento.autenticado', fuente: '/mcs/custodia', tema: 'mcs.documento.autenticado', sujeto: 'mcs.documento.autenticado-value' },
+  'documento.eliminado': { tipo: 'co.carpetasegura.documento.eliminado', fuente: '/mcs/custodia', tema: 'mcs.documento.eliminado', sujeto: 'mcs.documento.eliminado-value' },
+  'acceso.registrado': { tipo: 'co.carpetasegura.acceso.registrado', fuente: '/mcs/custodia', tema: 'mcs.acceso.registrado', sujeto: 'mcs.acceso.registrado-value' },
   'ciudadano.afiliado': { tipo: 'co.carpetasegura.ciudadano.afiliado', fuente: '/mcs/afiliacion', tema: 'mcs.ciudadano.afiliado', sujeto: 'mcs.ciudadano.afiliado-value' },
 }
 

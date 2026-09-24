@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { procesar } from '../src/consumidor.js'
+import { procesar } from '../consumidor.js'
 
 const mensaje = (extra = {}) => ({
   value: Buffer.from('cuerpo'),

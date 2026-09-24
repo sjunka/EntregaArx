@@ -1,0 +1,88 @@
+openapi: 3.1.0
+info:
+  title: Índice de carpeta (MS-05)
+  version: 0.1.0
+  description: >
+    Sirve las consultas de la Carpeta separadas de las escrituras de contenido (HU-06: RF-02.6, RNF-04).
+    Es una proyección en MongoDB que se alimenta de los eventos `documento.cargado`, `documento.recibido`,
+    `documento.autenticado` y `documento.eliminado` (contratos/eventos): refleja un cambio unos instantes
+    después de la custodia (consistencia eventual). Exige un Bearer JWT del emisor OIDC con audiencia
+    `indice` y `azp: portal`; cada ciudadano solo ve su Carpeta.
+servers:
+  - url: http://localhost:8091
+security:
+  - bearer: []
+paths:
+  /carpeta:
+    get:
+      operationId: buscarEnCarpeta
+      summary: Documentos de la Carpeta del titular, con filtros opcionales
+      description: >
+        Solo devuelve Temporales cargado o sustituido y Certificados vigente, del más reciente al más
+        antiguo (hasta 200). El texto se compara sin tildes ni mayúsculas y nunca como expresión regular.
+        Las fechas son días de Colombia (UTC-5).
+      parameters:
+        - { name: q, in: query, description: Texto contenido en el título, schema: { type: string, maxLength: 120 } }
+        - { name: clase, in: query, schema: { type: string, enum: [temporal, certificado] } }
+        - { name: desde, in: query, description: Primer día incluido, schema: { type: string, format: date } }
+        - { name: hasta, in: query, description: Último día incluido, schema: { type: string, format: date } }
+      responses:
+        '200':
+          description: Documentos que cumplen los filtros
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/DocumentoIndexado' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+  /salud:
+    get:
+      operationId: salud
+      security: []
+      summary: Chequeo de salud
+      responses:
+        '200':
+          description: Servicio sano
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [estado]
+                properties:
+                  estado: { type: string, const: ok }
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer, bearerFormat: JWT }
+  schemas:
+    DocumentoIndexado:
+      type: object
+      required: [id, titulo, clase, estado, creado]
+      properties:
+        id: { type: string, format: uuid }
+        titulo: { type: string }
+        clase: { type: string, enum: [temporal, certificado] }
+        estado: { type: string, enum: [cargado, sustituido, vigente] }
+        tipo: { type: string, enum: [application/pdf, image/jpeg, image/png] }
+        tamano: { type: integer, description: Ausente en los Certificados que llegan por `documento.recibido` }
+        emisor: { type: string }
+        sustituidoPor: { type: string, format: uuid }
+        autenticacion:
+          type: object
+          required: [fecha]
+          properties:
+            fecha: { type: string, format: date-time }
+        creado: { type: string, format: date-time }
+  responses:
+    Problema:
+      description: Error RFC 9457
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            required: [type, title, status]
+            properties:
+              type: { type: string }
+              title: { type: string }
+              status: { type: integer }
+              detail: { type: string }

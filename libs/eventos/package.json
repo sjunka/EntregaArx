@@ -1,0 +1,14 @@
+{
+  "name": "@mcs/eventos",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "index.js",
+  "scripts": { "test": "node --test" },
+  "dependencies": {
+    "@kafkajs/confluent-schema-registry": "^3.9.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1"
+  },
+  "engines": { "node": ">=22" }
+}

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFile, readdir } from 'node:fs/promises'
 import Ajv from 'ajv'
 import addFormats from 'ajv-formats'
-import { EVENTOS, crearPublicador, iniciarRelevo } from '../src/eventos.js'
+import { EVENTOS, crearPublicador, iniciarRelevo } from '../eventos.js'
 
 const CARPETA = new URL('../../../contratos/eventos/', import.meta.url)
 // Un Ajv por esquema: cada $id se puede registrar una sola vez.
@@ -19,6 +19,10 @@ const EJEMPLOS = {
     id: '11111111-1111-4111-8111-111111111111', cedula: '1012345678', clase: 'certificado', titulo: 'Diploma de ingeniería',
     emisor: 'universidad-demo', sustituyeA: '22222222-2222-4222-8222-222222222222', recibidoEn: '2026-09-24T10:00:00Z',
   },
+  'documento.cargado': { id: '11111111-1111-4111-8111-111111111111', cedula: '1012345678', clase: 'temporal', titulo: 'Cédula', tipo: 'application/pdf', tamano: 2048, creadoEn: '2026-09-24T10:00:00Z' },
+  'documento.autenticado': { id: '11111111-1111-4111-8111-111111111111', cedula: '1012345678', autenticadoEn: '2026-09-24T10:00:00Z' },
+  'documento.eliminado': { id: '11111111-1111-4111-8111-111111111111', cedula: '1012345678', eliminadoEn: '2026-09-24T10:00:00Z' },
+  'acceso.registrado': { documentoId: '11111111-1111-4111-8111-111111111111', cedula: '1012345678', titulo: 'Cédula', accion: 'descarga', actor: { tipo: 'titular', id: '1012345678' }, ocurridoEn: '2026-09-24T10:00:00Z' },
   'ciudadano.afiliado': { cedula: '1012345678', cuenta: 'ana.gil.45678@carpetacolombia.co', correoContacto: 'ana@correo.co', telefono: '3001234567', afiliadoEn: '2026-09-24T10:00:00Z' },
 }
 
@@ -39,6 +43,11 @@ test('contrato: un evento con campos de más o con formato malo no valida', asyn
   assert.equal(doc({ ...EJEMPLOS['documento.recibido'], contenido: 'AAAA' }), false, 'nunca contenido documental')
   assert.equal(doc({ ...EJEMPLOS['documento.recibido'], cedula: '12a' }), false)
   assert.equal(doc({ ...EJEMPLOS['documento.recibido'], clase: 'temporal' }), false)
+  const acc = compilar(await esquema('acceso-registrado.v1.schema.json'))
+  assert.equal(acc({ ...EJEMPLOS['acceso.registrado'], accion: 'borrado' }), false, 'la bitácora solo registra lecturas')
+  assert.equal(acc({ ...EJEMPLOS['acceso.registrado'], actor: { tipo: 'titular' } }), false)
+  const cargado = compilar(await esquema('documento-cargado.v1.schema.json'))
+  assert.equal(cargado({ ...EJEMPLOS['documento.cargado'], tipo: 'text/html' }), false)
   const afil = compilar(await esquema('ciudadano-afiliado.v1.schema.json'))
   assert.equal(afil({ ...EJEMPLOS['ciudadano.afiliado'], telefono: '6011234567' }), false)
 })

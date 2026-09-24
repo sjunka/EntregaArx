@@ -1,0 +1,78 @@
+openapi: 3.1.0
+info:
+  title: Auditoría (MS-02)
+  version: 0.1.0
+  description: >
+    Bitácora inalterable de quién accedió a cada Carpeta (HU-06: RF-02.7; HU-11 la muestra al ciudadano).
+    Se alimenta del evento `acceso.registrado` (contratos/eventos), que MS-04 publica cada vez que entrega
+    una URL de lectura. Es solo-append: no existe ninguna ruta que cambie o borre un registro y cualquier
+    método distinto de GET sobre `/accesos` responde 405. Exige un Bearer JWT con audiencia `auditoria` y
+    `azp: portal`; cada ciudadano solo ve los accesos a su propia Carpeta.
+servers:
+  - url: http://localhost:8092
+security:
+  - bearer: []
+paths:
+  /accesos:
+    get:
+      operationId: listarAccesos
+      summary: Accesos a la Carpeta del titular, del más reciente al más antiguo (hasta 100)
+      responses:
+        '200':
+          description: Bitácora del titular
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Acceso' }
+        '401': { $ref: '#/components/responses/Problema' }
+    put: { operationId: modificarAccesos, summary: No permitido, responses: { '405': { $ref: '#/components/responses/Problema' } } }
+    patch: { operationId: corregirAccesos, summary: No permitido, responses: { '405': { $ref: '#/components/responses/Problema' } } }
+    delete: { operationId: borrarAccesos, summary: No permitido, responses: { '405': { $ref: '#/components/responses/Problema' } } }
+  /salud:
+    get:
+      operationId: salud
+      security: []
+      summary: Chequeo de salud
+      responses:
+        '200':
+          description: Servicio sano
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [estado]
+                properties:
+                  estado: { type: string, const: ok }
+components:
+  securitySchemes:
+    bearer: { type: http, scheme: bearer, bearerFormat: JWT }
+  schemas:
+    Acceso:
+      type: object
+      required: [id, documentoId, titulo, accion, actor, ocurridoEn]
+      properties:
+        id: { type: string }
+        documentoId: { type: string, format: uuid }
+        titulo: { type: string }
+        accion: { type: string, enum: [descarga, lectura-tercero] }
+        actor:
+          type: object
+          required: [tipo, id]
+          properties:
+            tipo: { type: string, enum: [titular, tercero] }
+            id: { type: string, description: 'Cédula del titular, o entidad:{id} / correo:{dirección} del tercero' }
+        ocurridoEn: { type: string, format: date-time }
+  responses:
+    Problema:
+      description: Error RFC 9457
+      content:
+        application/problem+json:
+          schema:
+            type: object
+            required: [type, title, status]
+            properties:
+              type: { type: string }
+              title: { type: string }
+              status: { type: integer }
+              detail: { type: string }

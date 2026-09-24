@@ -3,6 +3,7 @@ import { sesion } from './sesion.js'
 export const AFILIACION = import.meta.env.VITE_MCS_AFILIACION || 'http://localhost:8082'
 const CUSTODIA = import.meta.env.VITE_MCS_CUSTODIA || 'http://localhost:8083'
 const NOTIFICACIONES = import.meta.env.VITE_MCS_NOTIFICACIONES || 'http://localhost:8087'
+const INDICE = import.meta.env.VITE_MCS_INDICE || 'http://localhost:8091'
 
 export class ErrorServicio extends Error {
   constructor(status, titulo, detalle) {
@@ -41,7 +42,11 @@ async function conSesion(ruta, opciones = {}, base = CUSTODIA) {
   }
 }
 
-export const listar = () => conSesion('/documentos')
+// La lista sale del índice de carpeta (MS-05, RNF-04); la custodia (MS-04) solo guarda, entrega y cuenta la cuota.
+export const buscar = ({ q, clase, desde, hasta } = {}) =>
+  conSesion(`/carpeta?${new URLSearchParams(Object.entries({ q, clase, desde, hasta }).filter(([, v]) => v))}`, {}, INDICE)
+// RF-02.7: URL prefirmada de corta vida; la custodia registra el acceso al entregarla.
+export const descargar = (id) => conSesion(`/documentos/${id}/descarga`)
 export const cuota = () => conSesion('/cuota')
 
 // Tres pasos (HU-03): reservar en la custodia, subir el binario directo al almacén con la URL prefirmada

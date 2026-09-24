@@ -19,6 +19,10 @@ const aDocumento = (d) => ({
 
 const mb = (b) => Math.floor(b / 1048576)
 
+const EXTENSION = { 'application/pdf': '.pdf', 'image/jpeg': '.jpg', 'image/png': '.png' }
+const DESCARGABLES = ['cargado', 'sustituido', 'vigente']
+export const VIDA_DESCARGA = 60 // segundos: RNF-11, la URL prefirmada dura lo justo para abrirla
+
 export function validarSolicitud({ titulo, tipo, tamano } = {}) {
   if (typeof titulo !== 'string' || !titulo.trim()) return [422, 'Falta el título', 'Escribe un nombre para el documento.']
   if (titulo.length > 120) return [422, 'Título demasiado largo', 'El título admite hasta 120 caracteres.']
@@ -171,6 +175,24 @@ export function crearApp({ documentos, verificar, almacen, almacenCertificados, 
           : 'No recibimos el archivo. Vuelve a subirlo.')
       }
       res.json(aDocumento(await documentos.confirmar(d.id, await almacen.sha256(clave))))
+    } catch (e) { next(e) }
+  })
+
+  // RF-02.7: entrega una URL de lectura de corta vida. Si el almacén no responde no se firma nada ni se registra un
+  // acceso que no ocurrió; el documento sigue en la lista y el ciudadano puede reintentar.
+  app.get('/documentos/:id/descarga', async (req, res, next) => {
+    try {
+      const d = await propio(req, res)
+      if (!d) return
+      if (!DESCARGABLES.includes(d.estado)) return problema(res, 409, 'El documento no está disponible', 'Este documento no está guardado en tu carpeta.')
+      const alm = d.clase === 'certificado' ? almacenCertificados : almacen
+      const clave = `${d.titular}/${d.id}`
+      let cabecera
+      try { cabecera = await alm.cabecera(clave) } catch (e) { log('warn', 'almacén no disponible al descargar', { documento: d.id, detalle: e.message }) }
+      if (!cabecera) return problema(res, 503, 'El almacén no responde', 'No pudimos preparar la descarga. Tu documento sigue en tu carpeta; intenta de nuevo en unos minutos.')
+      await documentos.registrarAcceso(d, { accion: 'descarga', actor: { tipo: 'titular', id: d.titular } })
+      const url = await alm.urlLectura(clave, { vida: VIDA_DESCARGA, nombre: `${d.titulo.replace(/[\\/:*?"<>|\x00-\x1f]/g, ' ').trim()}${EXTENSION[d.tipo] ?? ''}` })
+      res.json({ url, venceEn: new Date(Date.now() + VIDA_DESCARGA * 1000).toISOString() })
     } catch (e) { next(e) }
   })
 

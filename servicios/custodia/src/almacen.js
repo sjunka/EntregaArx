@@ -12,9 +12,12 @@ export function crearAlmacen({ endpoint, endpointPublico = endpoint, region = 'a
   return {
     urlCarga: (clave, tipo) =>
       getSignedUrl(publico, new PutObjectCommand({ Bucket: bucket, Key: clave, ContentType: tipo }), { expiresIn: 300 }),
-    // Lectura de 15 minutos: la usa GovCarpeta para autenticar (HU-04).
-    urlLectura: (clave) =>
-      getSignedUrl(publico, new GetObjectCommand({ Bucket: bucket, Key: clave }), { expiresIn: 900 }),
+    // Lectura de 15 minutos por defecto: la usa GovCarpeta para autenticar (HU-04). `nombre` fuerza la descarga con ese nombre de archivo.
+    urlLectura: (clave, { vida = 900, nombre } = {}) =>
+      getSignedUrl(publico, new GetObjectCommand({
+        Bucket: bucket, Key: clave,
+        ...(nombre && { ResponseContentDisposition: `attachment; filename="${nombre.replace(/[^\x20-\x7e]|["\\]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(nombre)}` }),
+      }), { expiresIn: vida }),
     async cabecera(clave) {
       try {
         const h = await interno.send(new HeadObjectCommand({ Bucket: bucket, Key: clave }))

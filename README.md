@@ -19,6 +19,8 @@ docker compose up -d --build
 | Custodia (MS-04) | http://localhost:8083 |
 | Interoperabilidad (MS-07) | http://localhost:8086 |
 | Notificaciones (MS-09) | http://localhost:8087 |
+| Índice de carpeta (MS-05) | http://localhost:8091 |
+| Auditoría (MS-02) | http://localhost:8092 |
 | Entidad emisora simulada | http://localhost:8088 |
 | MinIO (almacén S3) | http://localhost:9000 (consola 9001) |
 | Schema Registry | http://localhost:8085 |
@@ -36,8 +38,9 @@ Para trabajar en la SPA con recarga en caliente: `cd web && npm i && npm run dev
 
 ```sh
 npx @redocly/cli lint contratos/*.yaml   # contratos OpenAPI 3.1
-cd identidad && npm i && npm test     # emisor OIDC, node:test (igual en servicios/*)
-npx @redocly/cli lint contratos/*.yaml   # los esquemas de eventos los valida servicios/interoperabilidad/test/eventos.test.js
+cd identidad && npm i && npm test     # emisor OIDC, node:test (igual en servicios/* y libs/eventos)
+# Los esquemas de eventos los valida libs/eventos/test/eventos.test.js. Los servicios usan @mcs/eventos: npm i en libs/eventos antes.
+# Las pruebas de MongoDB (servicios/indice, servicios/auditoria) corren con MONGO_URL_TEST=mongodb://localhost:27018 (docker run --rm -p 27018:27017 mongo:7).
 # Si agregas una base a infra/init-bases.sql, recrea el volumen: docker compose down -v
 cd e2e && npm i && npx playwright install chromium && npm test   # flujos + axe, contra compose
 ```
@@ -68,6 +71,7 @@ Cambiar a Keycloak es solo cambiar variables de entorno:
 | HU-03 Carga de Temporal | RF-02.2 carga de PDF, JPG o PNG (10 MB), RF-02.3 metadatos y SHA-256, RNF-24 cuota de 20 Temporales y 200 MB visible en la SPA, RI-06 el binario sube por URL prefirmada a MinIO y no pasa por el servicio (cuerpos de 2 KB) |
 | HU-04 Autenticación de Temporal | RF-06.6 y RF-02.5 el titular pide a GovCarpeta autenticar su Temporal (403 a cualquier otro), RI-01 y RNF-21 a GovCarpeta solo viajan cédula, URL de lectura de 15 min y título (pasarela: 2 KB, https), Autenticado es una marca y el documento sigue Cargado y consumiendo cuota, escritura real solo con `GOVCARPETA_ESCRITURA=1` |
 | HU-05 Recepción de Certificado | RF-03.2 y RF-03.3 la entidad entrega el Certificado firmado (JWS) por un contrato propio en dos pasos y el archivo sube por URL prefirmada (ADR-0017), RF-05.1 aviso por el canal que el ciudadano elige, correo (Mailpit) o SMS simulado (ADR-0016), RNF-05 aviso en menos de 2 minutos, Kafka con CloudEvents 1.0, esquemas en Schema Registry y bandeja de salida (ADR-0018), el Certificado no consume cuota ni se elimina y deja Sustituido al Temporal equivalente |
+| HU-06 Consulta y descarga | RF-02.6 búsqueda por título, clase y fecha sobre el índice de carpeta (MS-05, MongoDB alimentado por eventos), RF-02.7 descarga por URL prefirmada de 60 s y cada acceso en la bitácora solo-append de MS-02, RNF-04 lista desde el índice, RNF-01 si el almacén no responde el documento sigue en la lista y se reintenta (ADR-0019) |
 
 ## Eventos y entidades de prueba
 

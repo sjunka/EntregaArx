@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mcs.example/contratos/eventos/documento-autenticado.v1.schema.json",
+  "title": "Documento autenticado (data de un CloudEvent 1.0)",
+  "description": "MS-04 publica este hecho cuando GovCarpeta autentica un Temporal (HU-04). Es una marca, no un estado: el documento sigue Cargado. MS-05 la refleja en el índice.",
+  "x-cloudevent": {
+    "type": "co.carpetasegura.documento.autenticado",
+    "source": "/mcs/custodia",
+    "subject": "documento/{cedula}",
+    "tema": "mcs.documento.autenticado",
+    "sujetoRegistro": "mcs.documento.autenticado-value"
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "cedula", "autenticadoEn"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "cedula": { "type": "string", "pattern": "^[0-9]{6,10}$" },
+    "autenticadoEn": { "type": "string", "format": "date-time" }
+  }
+}

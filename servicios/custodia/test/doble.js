@@ -20,20 +20,35 @@ export const tokenServicio = (azp = 'interoperabilidad') =>
 export function repositorioEnMemoria() {
   const filas = new Map()
   const transiciones = []
+  const eventos = [] // lo que el repositorio Postgres deja en la bandeja de salida, en la misma transacción que el hecho
+  const evento = (nombre, datos) => eventos.push({ nombre, datos })
   const cambiar = (id, cambios) => { if (cambios.estado) transiciones.push([id, cambios.estado]); return Object.assign(filas.get(id), cambios) }
   const visible = (d) => (d.clase === 'temporal' ? ['cargado', 'sustituido'] : ['vigente']).includes(d.estado)
   return {
-    filas, transiciones,
+    filas, transiciones, eventos,
     uso: async (titular) => {
       const v = [...filas.values()].filter((d) => d.titular === titular && d.clase === 'temporal' && d.estado === 'cargado')
       return { documentos: v.length, bytes: v.reduce((a, d) => a + d.tamano, 0) }
     },
     crear: async (d) => { filas.set(d.id, { clase: 'temporal', estado: 'pendiente', sha256: null, autenticacion: null, creado: new Date(), ...d }) },
     buscar: async (id) => filas.get(id) ?? null,
-    confirmar: async (id, sha256) => cambiar(id, { estado: 'cargado', sha256 }),
-    marcarAutenticado: async (id, respuesta) => Object.assign(filas.get(id), { autenticacion: { fecha: new Date(), respuesta } }),
+    confirmar: async (id, sha256) => {
+      const d = cambiar(id, { estado: 'cargado', sha256 })
+      evento('documento.cargado', { id, cedula: d.titular, clase: 'temporal', titulo: d.titulo, tipo: d.tipo, tamano: d.tamano })
+      return d
+    },
+    marcarAutenticado: async (id, respuesta) => {
+      const d = Object.assign(filas.get(id), { autenticacion: { fecha: new Date(), respuesta } })
+      evento('documento.autenticado', { id, cedula: d.titular })
+      return d
+    },
+    registrarAcceso: async (d, acceso) => { evento('acceso.registrado', { documentoId: d.id, cedula: d.titular, titulo: d.titulo, ...acceso }) },
     descartar: async (id) => { filas.delete(id) },
-    eliminar: async (id) => cambiar(id, { estado: 'eliminado' }),
+    eliminar: async (id) => {
+      const d = cambiar(id, { estado: 'eliminado' })
+      evento('documento.eliminado', { id, cedula: d.titular })
+      return d
+    },
     listar: async (titular) => [...filas.values()].filter((d) => d.titular === titular && visible(d)),
     // Certificados (HU-05). Idempotente por (emisor, idExterno).
     crearCertificado: async (d) => {
@@ -60,15 +75,19 @@ export function repositorioEnMemoria() {
 export function almacenFalso(nombre = 'temporales') {
   const objetos = new Map()
   const llamadas = { urlCarga: [], urlLectura: [], borrar: [] }
-  return {
-    objetos, llamadas,
-    urlLectura: async (clave) => { llamadas.urlLectura.push(clave); return `https://almacen.test/${clave}?firma=2` },
+  const almacen = {
+    objetos, llamadas, caido: false,
+    urlLectura: async (clave, opciones) => { llamadas.urlLectura.push(opciones ? [clave, opciones] : clave); return `https://almacen.test/${clave}?firma=2` },
     urlCarga: async (clave, tipo) => { llamadas.urlCarga.push([clave, tipo]); return `http://almacen.test/${nombre}/${clave}?firma=1` },
-    cabecera: async (clave) => objetos.get(clave)?.cabecera ?? null,
+    cabecera: async (clave) => {
+      if (almacen.caido) throw new Error('el almacén no responde')
+      return objetos.get(clave)?.cabecera ?? null
+    },
     sha256: async (clave) => objetos.get(clave)?.sha256 ?? 'sin-objeto',
     borrar: async (clave) => { llamadas.borrar.push(clave); objetos.delete(clave) },
     subir: (clave, tamano, tipo, sha256 = 'a'.repeat(64)) => objetos.set(clave, { cabecera: { tamano, tipo }, sha256 }),
   }
+  return almacen
 }
 
 export function pasarelaFalsa(respuesta = 'Documento autenticado') {

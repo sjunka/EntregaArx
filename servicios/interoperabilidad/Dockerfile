@@ -1,8 +1,12 @@
+# Contexto: la raíz del repo (el servicio usa libs/eventos). docker compose lo fija en compose.yaml.
 FROM node:22-alpine
-WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
-COPY src ./src
+WORKDIR /srv
+COPY libs/eventos libs/eventos
+RUN cd libs/eventos && npm ci --omit=dev
+COPY servicios/interoperabilidad/package.json servicios/interoperabilidad/package-lock.json servicios/interoperabilidad/
+RUN cd servicios/interoperabilidad && npm ci --omit=dev
+COPY servicios/interoperabilidad/src servicios/interoperabilidad/src
+WORKDIR /srv/servicios/interoperabilidad
 ENV NODE_ENV=production PORT=8080
 USER node
 EXPOSE 8080

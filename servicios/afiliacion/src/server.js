@@ -3,7 +3,7 @@ import { crearApp, crearLimite } from './app.js'
 import { crearKeycloak } from './keycloak.js'
 import { crearPasarela } from './pasarela.js'
 import { Kafka, Partitioners } from 'kafkajs'
-import { crearBandeja, crearPublicador, crearRegistro, iniciarRelevo } from './eventos.js'
+import { crearBandeja, crearPublicador, crearRegistro, iniciarRelevo } from '@mcs/eventos'
 
 const env = process.env
 const db = new pg.Pool({ connectionString: env.DATABASE_URL })

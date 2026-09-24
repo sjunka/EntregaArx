@@ -1,10 +1,10 @@
 openapi: 3.1.0
 info:
   title: Custodia documental (MS-04)
-  version: 0.4.0
+  version: 0.5.0
   description: >
     Documentos del ciudadano afiliado. Realiza HU-02 (RF-09.1, RNF-10, RNF-11) y HU-03
-    (RF-02.2, RF-02.3, RNF-24, RI-06) y HU-04 (RF-06.6, RF-02.5, RI-01, RNF-21) y HU-05 (RF-03.2, RF-03.3): todas las rutas
+    (RF-02.2, RF-02.3, RNF-24, RI-06) y HU-04 (RF-06.6, RF-02.5, RI-01, RNF-21) y HU-05 (RF-03.2, RF-03.3) y HU-06 (RF-02.7, RNF-01): todas las rutas
     salvo /salud exigen un Bearer JWT del emisor OIDC con audiencia `custodia` y `azp: portal`;
     sin firma válida, de otro emisor, de otra audiencia o vencido responde 401. Cada ciudadano
     solo ve su Carpeta. El binario nunca pasa por este servicio: sube directo al almacén por una
@@ -20,6 +20,9 @@ paths:
     get:
       operationId: listarDocumentos
       summary: Lista los documentos Cargados de la Carpeta del titular
+      description: >
+        Lectura directa de la custodia. La SPA consulta y busca en el índice de carpeta (MS-05,
+        `indice.openapi.yaml`); esta ruta queda para la conciliación.
       responses:
         '200':
           description: Documentos del titular, del más reciente al más antiguo
@@ -100,6 +103,32 @@ paths:
         '403': { $ref: '#/components/responses/Problema' }
         '409': { $ref: '#/components/responses/Problema' }
         '502': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
+  /documentos/{id}/descarga:
+    get:
+      operationId: descargarDocumento
+      summary: Entrega una URL prefirmada de lectura de 60 segundos y registra el acceso
+      description: >
+        RF-02.7. Solo el titular y solo documentos que están en su Carpeta (Temporal cargado o
+        sustituido, Certificado vigente). La URL trae `Content-Disposition: attachment`. Antes de
+        firmar comprueba que el almacén responde; si no, 503 y no se registra ningún acceso. Cada
+        URL entregada publica `acceso.registrado` (contratos/eventos) hacia la auditoría de MS-02.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: URL de lectura de corta vida
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [url, venceEn]
+                properties:
+                  url: { type: string, format: uri }
+                  venceEn: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '409': { $ref: '#/components/responses/Problema' }
         '503': { $ref: '#/components/responses/Problema' }
   /documentos/{id}:
     delete:

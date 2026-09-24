@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mcs.example/contratos/eventos/acceso-registrado.v1.schema.json",
+  "title": "Acceso registrado (data de un CloudEvent 1.0)",
+  "description": "MS-04 publica este hecho cada vez que entrega una URL de lectura: descarga del titular (HU-06) o lectura de un tercero autorizado (HU-07, HU-08). MS-02 lo agrega a la bitácora solo-append. Sin contenido documental.",
+  "x-cloudevent": {
+    "type": "co.carpetasegura.acceso.registrado",
+    "source": "/mcs/custodia",
+    "subject": "acceso/{cedula}",
+    "tema": "mcs.acceso.registrado",
+    "sujetoRegistro": "mcs.acceso.registrado-value"
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["documentoId", "cedula", "titulo", "accion", "actor", "ocurridoEn"],
+  "properties": {
+    "documentoId": { "type": "string", "format": "uuid" },
+    "cedula": { "type": "string", "pattern": "^[0-9]{6,10}$", "description": "Titular de la Carpeta" },
+    "titulo": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "accion": { "type": "string", "enum": ["descarga", "lectura-tercero"] },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["tipo", "id"],
+      "properties": {
+        "tipo": { "type": "string", "enum": ["titular", "tercero"] },
+        "id": { "type": "string", "minLength": 1, "maxLength": 254, "description": "Cédula del titular, o entidad:{id} / correo:{dirección} del tercero" }
+      }
+    },
+    "ocurridoEn": { "type": "string", "format": "date-time" }
+  }
+}

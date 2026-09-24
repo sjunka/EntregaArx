@@ -204,10 +204,10 @@ test('la cuenta no distingue mayúsculas, como en Keycloak', () => conEmisor(asy
   assert.equal((await autorizar(base, { username: USUARIO.cuenta.toUpperCase() })).status, 302)
 }))
 
-test('el token de acceso del ciudadano sirve a la custodia y a notificaciones', () => conEmisor(async (base) => {
+test('el token de acceso del ciudadano sirve a los servicios que lo atienden', () => conEmisor(async (base) => {
   const code = new URL((await autorizar(base)).headers.get('location')).searchParams.get('code')
   const { access_token } = await (await canjear(base, code)).json()
-  assert.deepEqual(decodeJwt(access_token).aud, ['custodia', 'notificaciones'])
+  assert.deepEqual(decodeJwt(access_token).aud, ['custodia', 'notificaciones', 'indice', 'auditoria'])
 }))
 
 test('client_credentials de un servicio: token con su audiencia y sin identidad de ciudadano', () => conEmisor(async (base) => {

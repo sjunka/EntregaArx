@@ -1,0 +1,26 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mcs.example/contratos/eventos/documento-cargado.v1.schema.json",
+  "title": "Documento cargado (data de un CloudEvent 1.0)",
+  "description": "MS-04 publica este hecho cuando un documento entra a la Carpeta como Cargado (Temporal subido por el ciudadano, HU-03) o por un Traslado de entrada (HU-09, también Certificados). MS-05 lo indexa. Sin contenido documental.",
+  "x-cloudevent": {
+    "type": "co.carpetasegura.documento.cargado",
+    "source": "/mcs/custodia",
+    "subject": "documento/{cedula}",
+    "tema": "mcs.documento.cargado",
+    "sujetoRegistro": "mcs.documento.cargado-value"
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "cedula", "clase", "titulo", "tipo", "tamano", "creadoEn"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid", "description": "Identificador del documento en la custodia" },
+    "cedula": { "type": "string", "pattern": "^[0-9]{6,10}$", "description": "Titular de la Carpeta" },
+    "clase": { "type": "string", "enum": ["temporal", "certificado"] },
+    "titulo": { "type": "string", "minLength": 1, "maxLength": 120 },
+    "tipo": { "type": "string", "enum": ["application/pdf", "image/jpeg", "image/png"] },
+    "tamano": { "type": "integer", "minimum": 1 },
+    "emisor": { "type": "string", "minLength": 1, "description": "Entidad emisora, solo en Certificados trasladados" },
+    "creadoEn": { "type": "string", "format": "date-time" }
+  }
+}

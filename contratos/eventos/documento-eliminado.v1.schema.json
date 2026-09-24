@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://mcs.example/contratos/eventos/documento-eliminado.v1.schema.json",
+  "title": "Documento eliminado (data de un CloudEvent 1.0)",
+  "description": "MS-04 publica este hecho cuando un Temporal se elimina (RF-02.10) o se descarta lo que llegó en un Traslado que falló (HU-09). MS-05 lo saca del índice.",
+  "x-cloudevent": {
+    "type": "co.carpetasegura.documento.eliminado",
+    "source": "/mcs/custodia",
+    "subject": "documento/{cedula}",
+    "tema": "mcs.documento.eliminado",
+    "sujetoRegistro": "mcs.documento.eliminado-value"
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "cedula", "eliminadoEn"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "cedula": { "type": "string", "pattern": "^[0-9]{6,10}$" },
+    "eliminadoEn": { "type": "string", "format": "date-time" }
+  }
+}

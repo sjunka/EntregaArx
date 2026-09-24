@@ -25,6 +25,7 @@ export async function crearLlave() {
   return { privada: privateKey, publica: publicKey, jwk: { ...(await exportJWK(publicKey)), kid: randomUUID(), alg: 'RS256', use: 'sig' } }
 }
 
+export const AUDIENCIAS_CIUDADANO = ['custodia', 'notificaciones', 'indice', 'auditoria']
 const VIDA_TOKEN = 300 // accessTokenLifespan del realm
 const VIDA_CODIGO = 60
 const MAX_INTENTOS = 5 // HU-02: al quinto fallo la cuenta se bloquea
@@ -182,8 +183,8 @@ export function crearApp({ emisor, llave, usuarios, clientes, administradores = 
       token_type: 'Bearer',
       expires_in: VIDA_TOKEN,
       scope: 'openid profile email',
-      // Audiencias: la custodia y notificaciones (MS-09) validan el mismo token del ciudadano.
-      access_token: await firmar({ ...perfil, typ: 'Bearer', scope: 'openid profile email', cedula: u.cedula }, ['custodia', 'notificaciones'], VIDA_TOKEN),
+      // Audiencias: cada servicio que atiende al ciudadano valida el mismo token (mapeador de audiencia en Keycloak).
+      access_token: await firmar({ ...perfil, typ: 'Bearer', scope: 'openid profile email', cedula: u.cedula }, AUDIENCIAS_CIUDADANO, VIDA_TOKEN),
       id_token: await firmar({ ...perfil, typ: 'ID', nonce: c.nonce }, c.azp, VIDA_TOKEN),
     })
   })

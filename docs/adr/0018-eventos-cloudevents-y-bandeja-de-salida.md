@@ -9,7 +9,7 @@ Estado: aceptada. Concreta AD-05 y AD-10 al implementar HU-05 (issue #7), la pri
 - Un evento que no cumple su esquema no sale: `encode` valida antes de enviar. Los consumidores omiten con aviso lo ilegible y reintentan si su manejador falla.
 - Entrega al menos una vez: los consumidores deduplican por `ce_id` (MS-09 lo hace por evento y canal).
 - La bandeja de MS-03 se escribe con el hecho en una sola sentencia. La de MS-07 usa una clave de deduplicación por documento, porque el hecho vive en MS-04.
-- El código de publicación se copia en tres servicios (`src/eventos.js`); se extrae a un paquete si aparece un cuarto.
+- El código de publicación y consumo vive en el paquete `libs/eventos` (`@mcs/eventos`), extraído al llegar HU-06 (ADR-0019); antes se copiaba en tres servicios.
 - Kafka es `apache/kafka` en modo KRaft y Schema Registry es `confluentinc/cp-schema-registry`, un nodo cada uno, en local.
 
 **Problema.** Elegir cómo viajan los hechos de negocio sin perderlos ni duplicar avisos.

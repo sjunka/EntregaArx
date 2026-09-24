@@ -1,3 +1,5 @@
+import { crearBandeja } from '@mcs/eventos'
+
 // Sin tildes, mayúsculas ni espacios de más: «Diploma de Ingeniería» y «diploma  de ingenieria» son el mismo título.
 export const normalizarTitulo = (t) => t.normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase().replace(/\s+/g, ' ').trim()
 
@@ -41,10 +43,32 @@ export async function migrar(db) {
     await db.query('UPDATE documentos SET titulo_norm = $2 WHERE id = $1', [f.id, normalizarTitulo(f.titulo)])
   }
   await db.query('CREATE INDEX IF NOT EXISTS documentos_titular ON documentos (titular)')
+  // HU-06: bandeja de salida con los eventos hacia MS-05 (índice) y MS-02 (auditoría), ADR-0018.
+  await crearBandeja(db).migrar()
 }
 
 export function crearRepositorio(db) {
+  const bandeja = crearBandeja(db)
   const uno = async (sql, args) => aDocumento((await db.query(sql, args)).rows[0])
+  // El hecho y su evento se escriben en una transacción: nunca uno sin el otro (ADR-0018). `evento(fila)` devuelve
+  // [nombre, datos] o null; la clave de deduplicación hace idempotente el encolado si el hecho se repite.
+  const conEvento = async (sql, args, evento) => {
+    const c = await db.connect()
+    try {
+      await c.query('BEGIN')
+      const f = aDocumento((await c.query(sql, args)).rows[0])
+      const e = f && evento(f)
+      if (e) await bandeja.encolar(e[0], f.titular, e[1], { cliente: c, dedupe: e[2] })
+      await c.query('COMMIT')
+      return f
+    } catch (err) {
+      await c.query('ROLLBACK')
+      throw err
+    } finally {
+      c.release()
+    }
+  }
+  const ahora = () => new Date().toISOString()
   return {
     uso: async (titular) => {
       const { rows: [u] } = await db.query(
@@ -56,11 +80,17 @@ export function crearRepositorio(db) {
       `INSERT INTO documentos (id, titular, titulo, titulo_norm, tipo, tamano, clase, estado) VALUES ($1, $2, $3, $4, $5, $6, 'temporal', 'pendiente')`,
       [d.id, d.titular, d.titulo, normalizarTitulo(d.titulo), d.tipo, d.tamano]),
     buscar: (id) => uno('SELECT * FROM documentos WHERE id = $1', [id]),
-    confirmar: (id, sha256) => uno(`UPDATE documentos SET estado = 'cargado', sha256 = $2 WHERE id = $1 RETURNING *`, [id, sha256]),
-    marcarAutenticado: (id, respuesta) => uno(
-      'UPDATE documentos SET autenticado_en = now(), respuesta_centralizador = $2 WHERE id = $1 RETURNING *', [id, respuesta]),
+    confirmar: (id, sha256) => conEvento(`UPDATE documentos SET estado = 'cargado', sha256 = $2 WHERE id = $1 RETURNING *`, [id, sha256],
+      (d) => ['documento.cargado', { id: d.id, cedula: d.titular, clase: 'temporal', titulo: d.titulo, tipo: d.tipo, tamano: d.tamano, creadoEn: ahora() }, `documento.cargado:${d.id}`]),
+    marcarAutenticado: (id, respuesta) => conEvento(
+      'UPDATE documentos SET autenticado_en = now(), respuesta_centralizador = $2 WHERE id = $1 RETURNING *', [id, respuesta],
+      (d) => ['documento.autenticado', { id: d.id, cedula: d.titular, autenticadoEn: ahora() }, `documento.autenticado:${d.id}`]),
+    // Cada entrega de una URL de lectura es un hecho nuevo para la bitácora de MS-02: sin clave de deduplicación.
+    registrarAcceso: (d, acceso) => bandeja.encolar('acceso.registrado', d.titular,
+      { documentoId: d.id, cedula: d.titular, titulo: d.titulo, ...acceso, ocurridoEn: ahora() }),
     descartar: (id) => db.query('DELETE FROM documentos WHERE id = $1', [id]),
-    eliminar: (id) => uno(`UPDATE documentos SET estado = 'eliminado' WHERE id = $1 RETURNING *`, [id]),
+    eliminar: (id) => conEvento(`UPDATE documentos SET estado = 'eliminado' WHERE id = $1 RETURNING *`, [id],
+      (d) => ['documento.eliminado', { id: d.id, cedula: d.titular, eliminadoEn: ahora() }, `documento.eliminado:${d.id}`]),
     // La Carpeta muestra Temporales Cargados o Sustituidos y Certificados Vigentes.
     listar: async (titular) => (await db.query(
       `SELECT * FROM documentos WHERE titular = $1

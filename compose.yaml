@@ -1,6 +1,7 @@
 # Mi Carpeta Segura en local: docker compose up -d --build
 # SPA 4173 · emisor OIDC 8081 · afiliación 8082 · custodia 8083 · pasarela 8084 · Schema Registry 8085
 # interoperabilidad 8086 · notificaciones 8087 · entidad simulada 8088 · MinIO 9000 (consola 9001) · Mailpit 8025 · GovCarpeta simulado 8090
+# índice de carpeta 8091 · auditoría 8092
 name: mcs
 
 x-migracion: &migracion
@@ -150,13 +151,13 @@ services:
 
   migrar-afiliacion:
     <<: *migracion
-    build: ./servicios/afiliacion
+    build: { context: ., dockerfile: servicios/afiliacion/Dockerfile }
     command: ["node", "src/server.js", "--migrar"]
     environment:
       DATABASE_URL: postgres://postgres:${PG_CLAVE}@postgres/afiliacion
 
   afiliacion:
-    build: ./servicios/afiliacion
+    build: { context: ., dockerfile: servicios/afiliacion/Dockerfile }
     restart: unless-stopped
     depends_on:
       migrar-afiliacion: { condition: service_completed_successfully }
@@ -178,22 +179,26 @@ services:
 
   migrar-custodia:
     <<: *migracion
-    build: ./servicios/custodia
+    build: { context: ., dockerfile: servicios/custodia/Dockerfile }
     command: ["node", "src/server.js", "--migrar"]
     environment:
       DATABASE_URL: postgres://postgres:${PG_CLAVE}@postgres/custodia
 
   custodia:
-    build: ./servicios/custodia
+    build: { context: ., dockerfile: servicios/custodia/Dockerfile }
     restart: unless-stopped
     depends_on:
       migrar-custodia: { condition: service_completed_successfully }
       identidad: { condition: service_healthy }
       bucket: { condition: service_completed_successfully }
       pasarela: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      esquemas: { condition: service_completed_successfully }
     environment:
       DATABASE_URL: postgres://postgres:${PG_CLAVE}@postgres/custodia
       PASARELA_URL: http://pasarela:8080
+      KAFKA_BROKERS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
       # iss que ve el navegador; las llaves se leen por la red interna.
       OIDC_ISSUER: http://localhost:8081/realms/carpeta
       OIDC_JWKS_URL: http://identidad:8080/realms/carpeta/protocol/openid-connect/certs
@@ -220,13 +225,13 @@ services:
 
   migrar-interoperabilidad:
     <<: *migracion
-    build: ./servicios/interoperabilidad
+    build: { context: ., dockerfile: servicios/interoperabilidad/Dockerfile }
     command: ["node", "src/server.js", "--migrar"]
     environment:
       DATABASE_URL: postgres://postgres:${PG_CLAVE}@postgres/interoperabilidad
 
   interoperabilidad:
-    build: ./servicios/interoperabilidad
+    build: { context: ., dockerfile: servicios/interoperabilidad/Dockerfile }
     restart: unless-stopped
     depends_on:
       migrar-interoperabilidad: { condition: service_completed_successfully }
@@ -247,7 +252,7 @@ services:
     ports: ["8086:8080"]
 
   notificaciones:
-    build: ./servicios/notificaciones
+    build: { context: ., dockerfile: servicios/notificaciones/Dockerfile }
     restart: unless-stopped
     depends_on:
       mongo: { condition: service_healthy }
@@ -265,6 +270,42 @@ services:
       ORIGENES: http://localhost:4173,http://localhost:5173
     ports: ["8087:8080"]
 
+  # MS-05: índice de carpeta, una proyección en MongoDB alimentada por los eventos de documento.
+  indice:
+    build: { context: ., dockerfile: servicios/indice/Dockerfile }
+    restart: unless-stopped
+    depends_on:
+      mongo: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      esquemas: { condition: service_completed_successfully }
+      identidad: { condition: service_healthy }
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+      KAFKA_BROKERS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      OIDC_ISSUER: http://localhost:8081/realms/carpeta
+      OIDC_JWKS_URL: http://identidad:8080/realms/carpeta/protocol/openid-connect/certs
+      ORIGENES: http://localhost:4173,http://localhost:5173
+    ports: ["8091:8080"]
+
+  # MS-02: bitácora de accesos solo-append en MongoDB, alimentada por los eventos de acceso.
+  auditoria:
+    build: { context: ., dockerfile: servicios/auditoria/Dockerfile }
+    restart: unless-stopped
+    depends_on:
+      mongo: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+      esquemas: { condition: service_completed_successfully }
+      identidad: { condition: service_healthy }
+    environment:
+      MONGO_URL: mongodb://mongo:27017
+      KAFKA_BROKERS: kafka:9092
+      SCHEMA_REGISTRY_URL: http://schema-registry:8081
+      OIDC_ISSUER: http://localhost:8081/realms/carpeta
+      OIDC_JWKS_URL: http://identidad:8080/realms/carpeta/protocol/openid-connect/certs
+      ORIGENES: http://localhost:4173,http://localhost:5173
+    ports: ["8092:8080"]
+
   web:
     build:
       context: ./web
@@ -273,6 +314,8 @@ services:
         VITE_MCS_AFILIACION: http://localhost:8082
         VITE_MCS_CUSTODIA: http://localhost:8083
         VITE_MCS_NOTIFICACIONES: http://localhost:8087
+        VITE_MCS_INDICE: http://localhost:8091
+        VITE_MCS_AUDITORIA: http://localhost:8092
     restart: unless-stopped
     depends_on: { identidad: { condition: service_healthy } }
     ports: ["4173:80"]
