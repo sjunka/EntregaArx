@@ -34,6 +34,7 @@ export function crearUsuarios(db) {
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (cuenta) DO NOTHING RETURNING id`,
       [u.cuenta, u.clave, u.habilitado, u.nombres, u.apellidos, u.cedula, u.correoContacto, u.telefono])).rows[0]?.id ?? null,
     habilitar: async (id, habilitado) => esUuid(id) && (await db.query('UPDATE usuarios SET habilitado = $2 WHERE id = $1', [id, habilitado])).rowCount > 0,
+    cambiarClave: async (id, clave) => esUuid(id) && (await db.query('UPDATE usuarios SET clave = $2 WHERE id = $1', [id, clave])).rowCount > 0,
     // Devuelve la fecha de fin del bloqueo, o null. Un bloqueo vencido reinicia la cuenta.
     bloqueo: async (cuenta) => {
       await db.query('DELETE FROM intentos WHERE cuenta = $1 AND bloqueado_hasta <= now()', [cuenta])

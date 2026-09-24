@@ -1,8 +1,9 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose'
 import { crearApp } from '../src/app.js'
 import { crearVerificador } from '../src/auth.js'
 import { normalizarTitulo } from '../src/documentos.js'
+import { ErrorOrigen } from '../src/traslado.js'
 
 export const EMISOR = 'http://localhost:8081/realms/carpeta'
 const { privateKey, publicKey } = await generateKeyPair('RS256')
@@ -27,7 +28,7 @@ export function repositorioEnMemoria() {
   return {
     filas, transiciones, eventos,
     uso: async (titular) => {
-      const v = [...filas.values()].filter((d) => d.titular === titular && d.clase === 'temporal' && d.estado === 'cargado')
+      const v = [...filas.values()].filter((d) => d.titular === titular && d.clase === 'temporal' && d.estado === 'cargado' && !d.origen)
       return { documentos: v.length, bytes: v.reduce((a, d) => a + d.tamano, 0) }
     },
     crear: async (d) => { filas.set(d.id, { clase: 'temporal', estado: 'pendiente', sha256: null, autenticacion: null, creado: new Date(), ...d }) },
@@ -50,6 +51,19 @@ export function repositorioEnMemoria() {
       return d
     },
     listar: async (titular) => [...filas.values()].filter((d) => d.titular === titular && visible(d)),
+    // Traslado de entrada (HU-09): conserva la clase, no consume cuota y es idempotente por (origen, idOrigen).
+    buscarPorOrigen: async (origen, idOrigen) => [...filas.values()].find((d) => d.origen === origen && d.idOrigen === idOrigen) ?? null,
+    crearTrasladado: async (d) => {
+      const fila = { autenticacion: null, creado: new Date(), estado: d.clase === 'certificado' ? 'vigente' : 'cargado', ...d }
+      filas.set(d.id, fila)
+      evento('documento.cargado', { id: d.id, cedula: d.titular, clase: d.clase, titulo: d.titulo, tipo: d.tipo, tamano: d.tamano, ...(d.clase === 'certificado' && { emisor: d.emisor }) })
+      return fila
+    },
+    descartarTraslado: async (titular, origen) => {
+      const borrados = [...filas.values()].filter((d) => d.titular === titular && d.origen === origen)
+      for (const d of borrados) { filas.delete(d.id); evento('documento.eliminado', { id: d.id, cedula: titular }) }
+      return borrados
+    },
     // Certificados (HU-05). Idempotente por (emisor, idExterno).
     crearCertificado: async (d) => {
       const previo = [...filas.values()].find((f) => f.emisor === d.emisor && f.idExterno === d.idExterno)
@@ -86,6 +100,10 @@ export function almacenFalso(nombre = 'temporales') {
     sha256: async (clave) => objetos.get(clave)?.sha256 ?? 'sin-objeto',
     borrar: async (clave) => { llamadas.borrar.push(clave); objetos.delete(clave) },
     subir: (clave, tamano, tipo, sha256 = 'a'.repeat(64)) => objetos.set(clave, { cabecera: { tamano, tipo }, sha256 }),
+    guardar: async (clave, bytes, tipo) => {
+      if (almacen.noGuarda) throw new Error('el almacén no responde')
+      objetos.set(clave, { cabecera: { tamano: bytes.length, tipo }, sha256: createHash('sha256').update(bytes).digest('hex'), bytes })
+    },
   }
   return almacen
 }
@@ -110,8 +128,21 @@ export function autorizacionesFalsas() {
   return a
 }
 
-export async function conServicio(prueba, { documentos = repositorioEnMemoria(), almacen = almacenFalso(), almacenCertificados = almacenFalso('certificados'), pasarela = pasarelaFalsa(), autorizaciones = autorizacionesFalsas(), ...resto } = {}) {
-  const app = crearApp({ documentos, almacen, almacenCertificados, pasarela, autorizaciones, verificar: crearVerificador({ issuer: EMISOR, jwks }), ...resto })
+// Descargador falso: las URL del operador de origen devuelven lo que la prueba dejó en `paginas` (Buffer) o lanzan el error indicado.
+export function descargadorFalso() {
+  const d = { paginas: new Map(), llamadas: [], descargar: async (url) => {
+    d.llamadas.push(url)
+    const r = d.paginas.get(url)
+    if (r instanceof ErrorOrigen) throw r
+    if (r instanceof Error) throw new ErrorOrigen(r.message)
+    if (!r) throw new ErrorOrigen('el origen respondió 404')
+    return r
+  } }
+  return d
+}
+
+export async function conServicio(prueba, { documentos = repositorioEnMemoria(), almacen = almacenFalso(), almacenCertificados = almacenFalso('certificados'), pasarela = pasarelaFalsa(), autorizaciones = autorizacionesFalsas(), descargador = descargadorFalso(), ...resto } = {}) {
+  const app = crearApp({ documentos, almacen, almacenCertificados, pasarela, autorizaciones, descargar: descargador.descargar, verificar: crearVerificador({ issuer: EMISOR, jwks }), ...resto })
   const srv = app.listen(0)
   const base = `http://127.0.0.1:${srv.address().port}`
   const pedir = async (ruta, { metodo = 'GET', cuerpo, cedula, cabeceras, servicio } = {}) => {
@@ -122,7 +153,7 @@ export async function conServicio(prueba, { documentos = repositorioEnMemoria(),
     })
     return { status: r.status, tipo: r.headers.get('content-type'), cuerpo: await r.json().catch(() => null) }
   }
-  try { await prueba({ pedir, documentos, almacen, almacenCertificados, pasarela, autorizaciones, base }) } finally { srv.close() }
+  try { await prueba({ pedir, documentos, almacen, almacenCertificados, pasarela, autorizaciones, descargador, base }) } finally { srv.close() }
 }
 
 export const nuevoId = randomUUID

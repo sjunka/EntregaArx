@@ -69,7 +69,7 @@ ${error ? `<p class="error" role="alert" id="error">${error}</p>` : ''}
 </form>`)
 }
 
-// usuarios: repositorio (src/usuarios.js) con porCuenta, crear, habilitar, borrar y el conteo de intentos (bloqueo, fallo, exito).
+// usuarios: repositorio (src/usuarios.js) con porCuenta, crear, habilitar, cambiarClave, borrar y el conteo de intentos (bloqueo, fallo, exito).
 // clientes: { clientId: [redirects, admite * final] }; administradores: { clientId: secreto } para el Admin API;
 // servicios: { clientId: { secreto, audiencia: texto o lista } } para client_credentials entre servicios (ADR-0006).
 export function crearApp({ emisor, llave, usuarios, clientes, administradores = {}, servicios = {}, origenes = [] }) {
@@ -234,6 +234,12 @@ export function crearApp({ emisor, llave, usuarios, clientes, administradores = 
   app.put(`${adminUsuarios}/:id`, async (req, res) => {
     if (typeof req.body?.enabled !== 'boolean') return problema(res, 400, 'Solo se admite cambiar enabled')
     ;(await usuarios.habilitar(req.params.id, req.body.enabled)) ? res.sendStatus(204) : problema(res, 404, 'Usuario no encontrado')
+  })
+
+  app.put(`${adminUsuarios}/:id/reset-password`, async (req, res) => {
+    const { type, value } = req.body ?? {}
+    if (type !== 'password' || typeof value !== 'string' || !value) return problema(res, 400, 'Credencial inválida', 'Se exige type password y un value')
+    ;(await usuarios.cambiarClave(req.params.id, await cifrarClave(value))) ? res.sendStatus(204) : problema(res, 404, 'Usuario no encontrado')
   })
 
   app.delete(`${adminUsuarios}/:id`, async (req, res) => {

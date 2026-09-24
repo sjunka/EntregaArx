@@ -11,6 +11,7 @@
   "dependencies": {
     "@mcs/eventos": "file:../../libs/eventos",
     "express": "^5.2.1",
+    "jose": "^6.2.12",
     "kafkajs": "^2.2.4",
     "pg": "^8.23.0"
   },

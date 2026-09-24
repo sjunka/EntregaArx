@@ -4,6 +4,7 @@ import { Kafka, Partitioners } from 'kafkajs'
 import { crearBandeja, crearPublicador, crearRegistro, iniciarRelevo } from '@mcs/eventos'
 import { crearApp } from './app.js'
 import { crearAutorizaciones, crearProveedorToken } from './autorizaciones.js'
+import { crearDescargador } from './traslado.js'
 import { crearVerificador } from './auth.js'
 import { crearAlmacen } from './almacen.js'
 import { crearPasarela } from './pasarela.js'
@@ -35,6 +36,8 @@ if (process.argv.includes('--migrar')) {
     almacen: almacenDe(env.S3_BUCKET),
     almacenCertificados: almacenDe(env.S3_BUCKET_CERTIFICADOS),
     pasarela: crearPasarela({ url: env.PASARELA_URL }),
+    // Hosts internos permitidos para descargar (solo compose local; en la nube todo es https público, ADR-0022).
+    descargar: crearDescargador({ hostsInternos: (env.TRASLADO_HOSTS_INTERNOS ?? '').split(',').filter(Boolean) }),
     autorizaciones: crearAutorizaciones({
       url: env.AUTORIZACIONES_URL,
       token: crearProveedorToken({ url: env.OIDC_INTERNO_URL, clientId: 'custodia', secreto: env.KC_CUSTODIA_SECRETO }),

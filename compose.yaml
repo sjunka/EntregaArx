@@ -1,7 +1,7 @@
 # Mi Carpeta Segura en local: docker compose up -d --build
 # SPA 4173 · emisor OIDC 8081 · afiliación 8082 · custodia 8083 · pasarela 8084 · Schema Registry 8085
 # interoperabilidad 8086 · notificaciones 8087 · entidad simulada 8088 · MinIO 9000 (consola 9001) · Mailpit 8025 · GovCarpeta simulado 8090
-# índice de carpeta 8091 · auditoría 8092 · autorizaciones 8093
+# índice de carpeta 8091 · auditoría 8092 · autorizaciones 8093 · operador de origen simulado 8094
 name: mcs
 
 x-migracion: &migracion
@@ -173,6 +173,10 @@ services:
       SCHEMA_REGISTRY_URL: http://schema-registry:8081
       KEYCLOAK_URL: http://identidad:8080
       KEYCLOAK_SECRETO: ${KC_AFILIACION_SECRETO}
+      # HU-09: rutas de servicio del traslado (token con audiencia afiliacion) y firma del enlace de activación.
+      OIDC_ISSUER: http://localhost:8081/realms/carpeta
+      OIDC_JWKS_URL: http://identidad:8080/realms/carpeta/protocol/openid-connect/certs
+      ACTIVACION_SECRETO: ${ACTIVACION_SECRETO:?copia .env.example a .env}
       # En local todas las pruebas salen de la misma IP; en la nube queda el valor por defecto (5).
       LIMITE_REGISTROS_HORA: 1000
       ORIGENES: http://localhost:4173,http://localhost:5173
@@ -226,6 +230,8 @@ services:
       AUTORIZACIONES_URL: http://autorizaciones:8080
       OIDC_INTERNO_URL: http://identidad:8080/realms/carpeta
       KC_CUSTODIA_SECRETO: ${KC_CUSTODIA_SECRETO}
+      # HU-09: hosts internos desde los que la custodia acepta descargar un traslado (en la nube, solo https público).
+      TRASLADO_HOSTS_INTERNOS: operador-origen
       # iss que ve el navegador; las llaves se leen por la red interna.
       OIDC_ISSUER: http://localhost:8081/realms/carpeta
       OIDC_JWKS_URL: http://identidad:8080/realms/carpeta/protocol/openid-connect/certs
@@ -250,6 +256,19 @@ services:
       ALMACEN_CONEXION: minio:9000
     ports: ["8088:8080"]
 
+  # Otro operador de Carpeta Ciudadana simulado: traslada ciudadanos hacia el nuestro (HU-09), como la entidad hace con los certificados.
+  operador-origen:
+    build: ./infra/operador-origen
+    restart: unless-stopped
+    depends_on: { govcarpeta: { condition: service_healthy } }
+    environment:
+      OPERADOR: operador-origen
+      OPERADOR_NOMBRE: Operador Origen
+      INTEROP_URL: http://interoperabilidad:8080
+      GOVCARPETA_URL: http://govcarpeta:8080
+      URL_PUBLICA: http://operador-origen:8080
+    ports: ["8094:8080"]
+
   migrar-interoperabilidad:
     <<: *migracion
     build: { context: ., dockerfile: servicios/interoperabilidad/Dockerfile }
@@ -267,6 +286,7 @@ services:
       custodia: { condition: service_healthy }
       pasarela: { condition: service_healthy }
       autorizaciones: { condition: service_healthy }
+      afiliacion: { condition: service_healthy }
       identidad: { condition: service_healthy }
       mailpit: { condition: service_started }
     environment:
@@ -276,10 +296,13 @@ services:
       PASARELA_URL: http://pasarela:8080
       CUSTODIA_URL: http://custodia:8080
       AUTORIZACIONES_URL: http://autorizaciones:8080
+      AFILIACION_URL: http://afiliacion:8080
+      SPA_URL: http://localhost:4173
+      TRASLADO_HOSTS_INTERNOS: operador-origen
       OIDC_INTERNO_URL: http://identidad:8080/realms/carpeta
       KC_INTEROP_SECRETO: ${KC_INTEROP_SECRETO}
       # Directorio de entidades emisoras y su llave pública (id=urlJWKS;id=urlJWKS).
-      EMISORES: universidad-demo=http://entidad:8080/.well-known/jwks.json
+      EMISORES: universidad-demo=http://entidad:8080/.well-known/jwks.json;operador-origen=http://operador-origen:8080/.well-known/jwks.json
       # HU-08: correo a la entidad sin operador con enlaces que apuntan aquí (la URL que ve quien abre el correo).
       SMTP_URL: smtp://mailpit:1025
       ENLACES_URL: http://localhost:8086

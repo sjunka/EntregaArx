@@ -8,6 +8,7 @@ import Subir from './Subir.jsx'
 import Avisos from './Avisos.jsx'
 import Solicitudes from './Solicitudes.jsx'
 import Enviar from './Enviar.jsx'
+import Activar from './Activar.jsx'
 
 // Una sola promesa: StrictMode corre el efecto dos veces y el código de ingreso solo se canjea una vez.
 const inicial = new URLSearchParams(window.location.search).has('code')
@@ -43,6 +44,7 @@ export default function App() {
   else if (usuario && hash === 'solicitudes') contenido = <Solicitudes alVencer={alVencer} />
   else if (usuario && hash === 'enviar') contenido = <Enviar alVencer={alVencer} />
   else if (usuario) contenido = <Carpeta nombre={usuario.profile.given_name} alVencer={alVencer} />
+  else if (hash.startsWith('activar/')) contenido = <Activar token={hash.slice('activar/'.length)} />
   else if (hash === 'registro') contenido = <Registro />
   else contenido = <Bienvenida fallo={fallo} vencida={vencida} />
 

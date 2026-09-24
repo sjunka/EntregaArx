@@ -33,6 +33,8 @@ export function crearAlmacen({ endpoint, endpointPublico = endpoint, region = 'a
       for await (const trozo of Body) hash.update(trozo)
       return hash.digest('hex')
     },
+    // Guarda un archivo que la propia custodia descargó (Traslado de entrada, HU-09); el resto de los binarios sube por URL prefirmada.
+    guardar: (clave, bytes, tipo) => interno.send(new PutObjectCommand({ Bucket: bucket, Key: clave, Body: bytes, ContentType: tipo })),
     borrar: (clave) => interno.send(new DeleteObjectCommand({ Bucket: bucket, Key: clave })),
   }
 }

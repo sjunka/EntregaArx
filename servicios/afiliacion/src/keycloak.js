@@ -41,6 +41,11 @@ export function crearKeycloak({ url, realm, clientId, clientSecret, fetch = glob
       const r = await llamar('PUT', `/users/${id}`, { enabled: true })
       if (!r.ok) throw new Error(`Keycloak habilitar ${r.status}`)
     },
+    // HU-09: el ciudadano trasladado fija su clave con el enlace de activación (reset-password, no temporal).
+    async fijarClave(id, clave) {
+      const r = await llamar('PUT', `/users/${id}/reset-password`, { type: 'password', value: clave, temporary: false })
+      if (!r.ok) throw new Error(`Keycloak reset-password ${r.status}`)
+    },
     async borrar(id) {
       const r = await llamar('DELETE', `/users/${id}`)
       if (!r.ok && r.status !== 404) throw new Error(`Keycloak borrar ${r.status}`)

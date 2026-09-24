@@ -5,11 +5,13 @@ import { crearApp } from './app.js'
 import { crearVerificador } from './auth.js'
 import { crearCorreo } from './correo.js'
 import { crearEntregador, crearRepoEnvios, iniciarReintentos, migrarEnvios, rutasEnvios } from './envios.js'
+import { crearAfiliacion } from './afiliacion.js'
 import { crearAutorizaciones } from './autorizaciones.js'
 import { crearCustodia, crearProveedorToken } from './custodia.js'
 import { crearBandeja, crearPublicador, crearRegistro, iniciarRelevo } from '@mcs/eventos'
 import { crearVerificadorFirmas } from './firma.js'
 import { crearPasarela } from './pasarela.js'
+import { confirmarAlOrigen, crearProcesador, crearRepoTraslados, iniciarTraslados, migrarTraslados, rutasTraslados } from './traslados.js'
 
 const env = process.env
 const db = new pg.Pool({ connectionString: env.DATABASE_URL })
@@ -20,6 +22,7 @@ if (process.argv.includes('--migrar')) {
   // RD-10: las migraciones corren como proceso aparte, nunca al arrancar el servicio.
   await bandeja.migrar()
   await migrarEnvios(db)
+  await migrarTraslados(db)
   log('info', 'migración de interoperabilidad aplicada')
   await db.end()
 } else {
@@ -43,7 +46,17 @@ if (process.argv.includes('--migrar')) {
   iniciarReintentos({ entregador, log })
   const autorizaciones = crearAutorizaciones({ url: env.AUTORIZACIONES_URL, token })
   const custodia = crearCustodia({ url: env.CUSTODIA_URL, token })
+  // HU-09: traslado de entrada. Un procesador orquesta cada traslado en curso (la custodia descarga, MS-03 afilia, el origen confirma).
+  const afiliacion = crearAfiliacion({ url: env.AFILIACION_URL, token })
+  const repoTraslados = crearRepoTraslados(db)
+  const hostsInternos = (env.TRASLADO_HOSTS_INTERNOS ?? '').split(',').filter(Boolean)
+  iniciarTraslados({ procesador: crearProcesador({ repo: repoTraslados, custodia, afiliacion, confirmar: confirmarAlOrigen }), log })
   const app = crearApp({
+    traslados: rutasTraslados({
+      firmas: crearVerificadorFirmas({ emisores }), pasarela: crearPasarela({ url: env.PASARELA_URL }), afiliacion, repo: repoTraslados, hostsInternos,
+      spaUrl: env.SPA_URL, operador: env.OPERADOR_NOMBRE ?? 'Mi Carpeta Segura',
+      verificar: crearVerificador({ issuer: env.OIDC_ISSUER, jwks: createRemoteJWKSet(new URL(env.OIDC_JWKS_URL)) }),
+    }),
     envios: rutasEnvios({
       repo: repoEnvios, entregador, custodia, autorizaciones, secreto: env.ENLACE_SECRETO, horas: Number(env.AUTORIZACION_HORAS ?? 72),
       verificar: crearVerificador({ issuer: env.OIDC_ISSUER, jwks: createRemoteJWKSet(new URL(env.OIDC_JWKS_URL)) }),

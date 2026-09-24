@@ -1,6 +1,8 @@
 import express from 'express'
 import { randomUUID } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { ErrorPasarela } from './pasarela.js'
+import { ErrorOrigen } from './traslado.js'
 
 export const TIPOS = ['application/pdf', 'image/jpeg', 'image/png']
 export const MAX_ARCHIVO = 10 * 1024 * 1024
@@ -34,6 +36,21 @@ export function validarSolicitud({ titulo, tipo, tamano } = {}) {
   return null
 }
 
+// Validación de un documento de un Traslado de entrada (HU-09) que la interoperabilidad (MS-07) pide recibir.
+export function validarTrasladado(d = {}) {
+  const texto = (v, max) => typeof v === 'string' && v.trim().length > 0 && v.length <= max
+  if (!texto(d.operador, 80) || !texto(d.idExterno, 120)) return 'Faltan el operador de origen o el identificador del documento.'
+  if (!/^[0-9]{6,10}$/.test(d.cedula ?? '')) return 'La cédula del titular no es válida.'
+  if (!texto(d.titulo, 120)) return 'Falta el título del documento.'
+  if (!['temporal', 'certificado'].includes(d.clase)) return 'La clase debe ser temporal o certificado.'
+  if (d.clase === 'certificado' && !texto(d.emisor, 80)) return 'Un Certificado necesita su entidad emisora.'
+  if (!TIPOS.includes(d.tipo)) return 'Solo se aceptan PDF, JPG o PNG.'
+  if (!Number.isInteger(d.tamano) || d.tamano <= 0 || d.tamano > MAX_ARCHIVO) return 'El tamaño declarado no es válido (máximo 10 MB).'
+  if (!/^[0-9a-f]{64}$/.test(d.sha256 ?? '')) return 'El SHA-256 declarado no es válido.'
+  try { if (typeof d.url !== 'string' || d.url.length > 2000) throw new Error(); new URL(d.url) } catch { return 'La dirección del documento no es válida.' }
+  return null
+}
+
 // Validación de lo que la interoperabilidad (MS-07) declara de un Certificado.
 export function validarCertificado(c = {}) {
   const texto = (v, max) => typeof v === 'string' && v.trim().length > 0 && v.length <= max
@@ -49,9 +66,9 @@ export function validarCertificado(c = {}) {
 
 // dependencias: documentos (repositorio, src/documentos.js), verificar(token) → claims,
 // almacen y almacenCertificados (urlCarga, urlLectura, cabecera, sha256, borrar), pasarela (autenticar),
-// autorizaciones (decidir: cliente de MS-06, RI-08).
+// autorizaciones (decidir: cliente de MS-06, RI-08), descargar(url, { tamano }) → Buffer (Traslado de entrada, src/traslado.js).
 // Los Certificados van a su propio bucket: en el objetivo con retención bloqueada (ADR-0004).
-export function crearApp({ documentos, verificar, almacen, almacenCertificados, pasarela, autorizaciones, origenes = [] }) {
+export function crearApp({ documentos, verificar, almacen, almacenCertificados, pasarela, autorizaciones, descargar, origenes = [] }) {
   const app = express()
   app.use((req, res, next) => {
     const o = req.headers.origin
@@ -61,7 +78,7 @@ export function crearApp({ documentos, verificar, almacen, almacenCertificados, 
     req.method === 'OPTIONS' ? res.sendStatus(204) : next()
   })
   // RI-06: el binario nunca llega aquí, solo metadatos.
-  app.use(express.json({ limit: '2kb' }))
+  app.use(express.json({ limit: '4kb' }))
 
   app.get('/salud', (_req, res) => res.json({ estado: 'ok' }))
 
@@ -149,6 +166,58 @@ export function crearApp({ documentos, verificar, almacen, almacenCertificados, 
       if (!decision.permitida) return problema(res, 403, 'Sin autorización vigente', 'El titular no autorizó a este tercero a leer el documento, o retiró su autorización.')
       const r = await entregar(d, { accion: 'lectura-tercero', actor: { tipo: 'tercero', id: tercero }, vida: VIDA_LECTURA_TERCERO })
       Array.isArray(r) ? problema(res, ...r) : res.json(r)
+    } catch (e) { next(e) }
+  })
+
+  // HU-09 · Traslado de entrada. La custodia descarga el documento de la URL del origen, comprueba tamaño y SHA-256 contra lo
+  // declarado (RNF-22) y lo guarda en su almacén, conservando su clase. Idempotente por (origen, id en el origen): un fallo
+  // se reintenta sin duplicar. El binario va del origen a la custodia; MS-07 solo orquesta y no lo ve (RI-06).
+  interno.post('/traslados/documentos', async (req, res, next) => {
+    const invalido = validarTrasladado(req.body)
+    if (invalido) return problema(res, 422, 'Documento de traslado inválido', invalido)
+    const d = req.body
+    try {
+      const previo = await documentos.buscarPorOrigen(d.operador, d.idExterno)
+      if (previo) return previo.titular === d.cedula ? res.json({ documento: aDocumento(previo) }) : problema(res, 409, 'Documento ya recibido para otro titular')
+      let bytes
+      try {
+        bytes = await descargar(d.url, { tamano: d.tamano })
+      } catch (e) {
+        if (!(e instanceof ErrorOrigen)) throw e
+        log('warn', 'no se pudo descargar un documento del traslado', { operador: d.operador, detalle: e.message })
+        return e.politica ? problema(res, 422, 'Dirección no permitida', e.message) : problema(res, 502, 'No pudimos descargar el documento del operador de origen', e.message)
+      }
+      if (bytes.length !== d.tamano || createHash('sha256').update(bytes).digest('hex') !== d.sha256) {
+        return problema(res, 422, 'El archivo no coincide con lo declarado', 'El tamaño o el SHA-256 del archivo descargado no coincide con lo que declaró el operador de origen.')
+      }
+      const id = randomUUID()
+      const alm = d.clase === 'certificado' ? almacenCertificados : almacen
+      try {
+        await alm.guardar(`${d.cedula}/${id}`, bytes, d.tipo)
+      } catch (e) {
+        log('warn', 'almacén no disponible al recibir un documento del traslado', { detalle: e.message })
+        return problema(res, 503, 'El almacén no responde', 'No pudimos guardar el documento. Reintenta en unos minutos.')
+      }
+      const fila = await documentos.crearTrasladado({ id, titular: d.cedula, titulo: d.titulo.trim(), clase: d.clase, emisor: d.emisor, tipo: d.tipo, tamano: d.tamano, sha256: d.sha256, origen: d.operador, idOrigen: d.idExterno })
+      if (!fila) {
+        // Otra solicitud lo recibió primero: se borra el archivo duplicado y se devuelve el que quedó.
+        await alm.borrar(`${d.cedula}/${id}`).catch(() => {})
+        return res.json({ documento: aDocumento(await documentos.buscarPorOrigen(d.operador, d.idExterno)) })
+      }
+      res.status(201).json({ documento: aDocumento(fila) })
+    } catch (e) { next(e) }
+  })
+
+  // El Traslado falló: se descarta lo que llegó de ese origen para ese titular, con sus archivos. Idempotente.
+  interno.delete('/traslados/:cedula', async (req, res, next) => {
+    const operador = req.query.operador
+    if (!/^[0-9]{6,10}$/.test(req.params.cedula) || typeof operador !== 'string' || !operador) return problema(res, 422, 'Descarte inválido', 'Se exigen la cédula del titular y el operador de origen.')
+    try {
+      const borrados = await documentos.descartarTraslado(req.params.cedula, operador)
+      for (const d of borrados) {
+        try { await (d.clase === 'certificado' ? almacenCertificados : almacen).borrar(`${d.titular}/${d.id}`) } catch (e) { log('warn', 'no se pudo borrar un archivo descartado', { documento: d.id, detalle: e.message }) }
+      }
+      res.json({ descartados: borrados.length })
     } catch (e) { next(e) }
   })
 

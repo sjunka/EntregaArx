@@ -45,3 +45,7 @@ export async function tokenServicio(request, clienteId, secreto) {
   expect(r.status()).toBe(200)
   return (await r.json()).access_token
 }
+
+export const ORIGEN = process.env.ORIGEN_URL ?? 'http://localhost:8094'
+export const GOVCARPETA = process.env.GOVCARPETA_URL ?? 'http://localhost:8090'
+export const cedulaNueva = () => `97${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 90 + 10)}`

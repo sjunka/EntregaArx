@@ -31,6 +31,7 @@ function enMemoria() {
       return id
     },
     habilitar: async (id, habilitado) => filas.has(id) && !!Object.assign(filas.get(id), { habilitado }),
+    cambiarClave: async (id, clave) => filas.has(id) && !!Object.assign(filas.get(id), { clave }),
     borrar: async (id) => filas.delete(id),
     // Intentos por nombre de cuenta, exista o no, para no revelar qué cuentas hay.
     bloqueo: async (cuenta) => { const b = intentos.get(cuenta)?.hasta; return b > Date.now() ? b : null },
@@ -54,7 +55,7 @@ async function conEmisor(prueba) {
     usuarios,
     clientes: { portal: [`${REDIRECT}*`] },
     administradores: { 'afiliacion-admin': SECRETO_ADMIN },
-    servicios: { interoperabilidad: { secreto: SECRETO_SERVICIO, audiencia: ['custodia', 'autorizaciones'] }, custodia: { secreto: 'secreto-de-custodia', audiencia: 'autorizaciones' } },
+    servicios: { interoperabilidad: { secreto: SECRETO_SERVICIO, audiencia: ['custodia', 'autorizaciones', 'afiliacion'] }, custodia: { secreto: 'secreto-de-custodia', audiencia: 'autorizaciones' } },
     origenes: ['http://localhost:4173'],
   })
   const srv = app.listen(0)
@@ -222,7 +223,7 @@ test('client_credentials de un servicio: token con su audiencia y sin identidad 
   assert.equal(payload.azp, 'interoperabilidad')
   assert.equal(payload.cedula, undefined)
   assert.equal(payload.preferred_username, undefined)
-  assert.deepEqual(decodeJwt((await (await pedir(SECRETO_SERVICIO)).json()).access_token).aud, ['custodia', 'autorizaciones'], 'la interoperabilidad también llama a autorizaciones')
+  assert.deepEqual(decodeJwt((await (await pedir(SECRETO_SERVICIO)).json()).access_token).aud, ['custodia', 'autorizaciones', 'afiliacion'], 'la interoperabilidad también llama a autorizaciones y afiliación')
   const custodia = decodeJwt((await (await pedir('secreto-de-custodia', 'custodia')).json()).access_token)
   assert.deepEqual([custodia.azp, custodia.aud], ['custodia', 'autorizaciones'])
 }))
@@ -297,4 +298,19 @@ test('usuario sin clave o sin cuenta: 400', () => conEmisor(async (base) => {
   const { token } = await tokenAdmin(base)
   assert.equal((await admin(base, token, 'POST', '', { ...NUEVO, credentials: [] })).status, 400)
   assert.equal((await admin(base, token, 'POST', '', { ...NUEVO, username: '' })).status, 400)
+}))
+
+// HU-09: el ciudadano trasladado fija su clave con el enlace de activación; Afiliación llama al reset-password de Keycloak.
+test('reset-password fija la clave de una cuenta sin cambiar si está habilitada, como Keycloak', () => conEmisor(async (base) => {
+  const { token } = await tokenAdmin(base)
+  const id = (await admin(base, token, 'POST', '', NUEVO)).headers.get('location').split('/').pop()
+  const reset = (cuerpo, t = token) => admin(base, t, 'PUT', `/${id}/reset-password`, cuerpo)
+  assert.equal((await reset({ type: 'password', value: 'otra-clave-muy-segura', temporary: false })).status, 204)
+  await admin(base, token, 'PUT', `/${id}`, { enabled: true })
+  assert.equal((await autorizar(base, { username: NUEVO.username, password: 'clave-muy-segura' })).status, 401, 'la clave anterior ya no sirve')
+  assert.equal((await autorizar(base, { username: NUEVO.username, password: 'otra-clave-muy-segura' })).status, 302)
+  assert.equal((await reset({ type: 'password', value: '' })).status, 400)
+  assert.equal((await reset({ type: 'otp', value: 'x' })).status, 400)
+  assert.equal((await admin(base, token, 'PUT', `/${randomUUID()}/reset-password`, { type: 'password', value: 'x'.repeat(12) })).status, 404)
+  assert.equal((await reset({ type: 'password', value: 'otra-clave-muy-segura' }, 'basura')).status, 401)
 }))

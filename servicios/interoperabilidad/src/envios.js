@@ -1,7 +1,7 @@
 import express from 'express'
 import { randomUUID } from 'node:crypto'
 import { ErrorCustodia } from './custodia.js'
-import { UUID, log, problema } from './comun.js'
+import { UUID, log, problema, sesionCiudadano } from './comun.js'
 import { enlaceValido, firmaEnlace } from './enlaces.js'
 
 export const MAX_INTENTOS = 5
@@ -81,17 +81,9 @@ export function iniciarReintentos({ entregador, intervaloMs = 3000, log: aviso =
 // autorizaciones (conceder), secreto de enlaces, horas de vigencia, ahora (reloj).
 export function rutasEnvios({ verificar, repo, entregador, custodia, autorizaciones, secreto, horas = 72, ahora = () => new Date() }) {
   const ciudadano = express.Router()
-  ciudadano.use(async (req, res, next) => {
-    const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1]
-    if (!token) return problema(res, 401, 'Sesión requerida', 'Ingresa con tu cuenta institucional.')
-    try {
-      const c = await verificar(token)
-      if (c.azp !== 'portal' || !c.cedula) return problema(res, 401, 'Token no válido para envíos')
-      req.titular = { cedula: c.cedula, nombre: c.name ?? c.preferred_username ?? 'Un ciudadano' }
-      next()
-    } catch {
-      problema(res, 401, 'Sesión inválida o vencida', 'Vuelve a ingresar.')
-    }
+  ciudadano.use(sesionCiudadano(verificar, 'envíos'), (req, _res, next) => {
+    req.titular = { cedula: req.claims.cedula, nombre: req.claims.name ?? req.claims.preferred_username ?? 'Un ciudadano' }
+    next()
   })
 
   // RF-04.1 y RF-04.2: el ciudadano arma el paquete y escribe el correo de la entidad; el paquete viaja como enlaces.

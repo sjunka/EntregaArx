@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { BadgeCheck, Download, FilePlus2, FileText, FolderOpen, Search, ShieldCheck } from 'lucide-react'
-import { autenticar, buscar, cuota as pedirCuota, descargar } from './api.js'
+import { BadgeCheck, Download, FilePlus2, FileText, FolderOpen, Search, ShieldCheck, Truck } from 'lucide-react'
+import { autenticar, buscar, cuota as pedirCuota, descargar, traslado as pedirTraslado } from './api.js'
 import Aviso from './Aviso.jsx'
 import Estado from './Estado.jsx'
 
@@ -18,6 +18,7 @@ export default function Carpeta({ nombre, alVencer }) {
   const [enviando, setEnviando] = useState(null)
   const [descargando, setDescargando] = useState(null)
   const [fallo, setFallo] = useState(null)
+  const [traslado, setTraslado] = useState(null)
   const [borrador, setBorrador] = useState(SIN_FILTROS)
   const [filtros, setFiltros] = useState(SIN_FILTROS)
   // El índice se actualiza por eventos, unos instantes después de la custodia: lo que el ciudadano acaba de hacer
@@ -55,6 +56,10 @@ export default function Carpeta({ nombre, alVencer }) {
 
   useEffect(() => {
     let vivo = true
+    // HU-09: el avance del traslado de entrada; sin traslado no muestra nada.
+    const cargarTraslado = () => pedirTraslado()
+      .then((t) => vivo && setTraslado((previo) => (JSON.stringify(previo) === JSON.stringify(t) ? previo : t)))
+      .catch((e) => e.status === 401 && vivo && alVencer())
     const cargar = () => buscar(filtros)
       .then((lista) => {
         if (!vivo) return
@@ -64,7 +69,8 @@ export default function Carpeta({ nombre, alVencer }) {
       })
       .catch((e) => vivo && (e.status === 401 ? alVencer() : setError(e.message)))
     cargar()
-    const ciclo = setInterval(cargar, 4000)
+    cargarTraslado()
+    const ciclo = setInterval(() => { cargar(); cargarTraslado() }, 4000)
     return () => { vivo = false; clearInterval(ciclo) }
   }, [alVencer, filtros])
 
@@ -86,6 +92,19 @@ export default function Carpeta({ nombre, alVencer }) {
           <FilePlus2 size={20} strokeWidth={1.75} aria-hidden="true" /> Subir documento
         </a>
       </div>
+      {traslado?.estado === 'en-curso' && (
+        <section aria-labelledby="t-traslado" className="bg-info-bg border border-info rounded-lg p-4 mb-4">
+          <h2 id="t-traslado" className="flex items-center gap-2 text-lg font-bold m-0"><Truck size={20} strokeWidth={1.75} aria-hidden="true" /> Estamos trasladando tu carpeta</h2>
+          <p className="my-1" role="status">
+            Desde {traslado.operador}: recibimos {traslado.recibidos} de {traslado.total} documentos.
+          </p>
+          <progress className="w-full h-3" max={traslado.total} value={traslado.recibidos} aria-label="Avance del traslado">{traslado.recibidos} de {traslado.total}</progress>
+          <p className="text-sm text-ink-2 mt-1 mb-0">Tu afiliación cambia a Mi Carpeta Segura cuando lleguen todos.</p>
+        </section>
+      )}
+      {traslado?.estado === 'completo' && Date.now() - new Date(traslado.completadoEn).getTime() < 7 * 86_400_000 && (
+        <Aviso tipo="exito" titulo="Tu carpeta llegó completa">Trasladamos {traslado.total} documentos desde {traslado.operador} y ya estás afiliado a Mi Carpeta Segura.</Aviso>
+      )}
       {cuota && (
         <p className="text-ink-2 mb-4" data-testid="cuota">
           Te quedan {cuota.documentos.maximo - cuota.documentos.usados} de {cuota.documentos.maximo} documentos

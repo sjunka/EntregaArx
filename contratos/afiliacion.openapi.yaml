@@ -1,11 +1,15 @@
 openapi: 3.1.0
 info:
   title: Afiliación (MS-03)
-  version: 0.3.0
+  version: 0.4.0
   description: >
     Registro de ciudadanos con afiliación única contra GovCarpeta. Realiza HU-01
     (RF-01.1, RF-01.2, RF-01.3, RF-01.5, RI-03). La verificación de identidad contra la
-    Registraduría es simulada (B-06).
+    Registraduría es simulada (B-06). También recibe el Traslado de entrada (HU-09: RF-01.8, RF-01.5, RI-03):
+    la interoperabilidad crea la cuenta institucional del ciudadano trasladado, con una clave aleatoria que nadie conoce; el
+    ciudadano fija la suya con un enlace de activación de un solo uso y 24 horas; y GovCarpeta cambia su afiliación a este
+    operador solo cuando MS-07 avisa que la Carpeta llegó completa. Las rutas `/interno/*` exigen un token de servicio
+    (client credentials, audiencia `afiliacion`, `azp: interoperabilidad`).
 servers:
   - url: http://localhost:8082
 security: [] # registro anónimo: el ciudadano aún no tiene cuenta
@@ -32,6 +36,114 @@ paths:
         '429': { $ref: '#/components/responses/Problema' }
         '502': { $ref: '#/components/responses/Problema' }
         '503': { $ref: '#/components/responses/Problema' }
+  /traslados/activacion:
+    post:
+      operationId: activarCuentaTrasladada
+      summary: El ciudadano trasladado fija su clave con el enlace de activación
+      description: >
+        Sin sesión: la credencial es el token del enlace (`{id del traslado}.{HMAC}`), que solo sirve para ese traslado.
+        Fija la clave, habilita la cuenta y consume el enlace: usarlo otra vez responde 409. Vence a las 24 horas (410).
+        Un token alterado o ajeno responde 404. La clave lleva entre 12 y 64 caracteres (422).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, clave]
+              properties:
+                token: { type: string }
+                clave: { type: string, minLength: 12, maxLength: 64 }
+      responses:
+        '200':
+          description: Cuenta activa; el ciudadano ya puede ingresar
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cuenta]
+                properties:
+                  cuenta: { type: string, description: Cuenta institucional (correo) }
+        '404': { $ref: '#/components/responses/Problema' }
+        '409': { $ref: '#/components/responses/Problema' }
+        '410': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+  /interno/traslados:
+    post:
+      operationId: iniciarTraslado
+      summary: Crea la cuenta institucional del ciudadano trasladado (solo la interoperabilidad)
+      description: >
+        Crea la cuenta deshabilitada con una clave aleatoria y un registro en estado `traslado`; no toca GovCarpeta.
+        Idempotente por cédula: repetirlo devuelve el mismo enlace de activación (200). Ya afiliado aquí o cuenta de otra
+        persona: 409.
+      security: [{ servicio: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cedula, nombre, apellido, direccion, cuenta, correoContacto, telefono]
+              properties:
+                cedula: { type: string, pattern: '^[0-9]{6,10}$' }
+                nombre: { type: string }
+                apellido: { type: string }
+                direccion: { type: string }
+                cuenta: { type: string, format: email, description: Cuenta institucional que sobrevive al traslado (RF-01.5) }
+                correoContacto: { type: string, format: email }
+                telefono: { type: string, pattern: '^3[0-9]{9}$' }
+      responses:
+        '201':
+          description: Cuenta creada
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activacion' }
+        '200':
+          description: Ya existía; mismo enlace
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Activacion' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '409': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+  /interno/traslados/{cedula}/completar:
+    post:
+      operationId: completarTraslado
+      summary: La Carpeta llegó completa; GovCarpeta pasa al ciudadano a este operador
+      description: >
+        Consulta GovCarpeta: si lo tiene otro operador responde 409 y no afilia (RI-03); si ya lo tiene este, no registra
+        de nuevo; si está libre lo registra. Después afilia y publica `ciudadano.afiliado` con su contacto. GovCarpeta caído:
+        503 para reintentar; rechazo: 502. Idempotente.
+      security: [{ servicio: [] }]
+      parameters:
+        - { name: cedula, in: path, required: true, schema: { type: string } }
+      responses:
+        '200':
+          description: Afiliado
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [estado]
+                properties:
+                  estado: { type: string, const: afiliado }
+        '404': { $ref: '#/components/responses/Problema' }
+        '409': { $ref: '#/components/responses/Problema' }
+        '502': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
+  /interno/traslados/{cedula}/cancelar:
+    post:
+      operationId: cancelarTraslado
+      summary: El traslado falló; borra la cuenta y el registro creados aquí
+      description: Idempotente. Un ciudadano ya afiliado no se cancela (409).
+      security: [{ servicio: [] }]
+      parameters:
+        - { name: cedula, in: path, required: true, schema: { type: string } }
+      responses:
+        '200': { description: Deshecho }
+        '409': { $ref: '#/components/responses/Problema' }
   /salud:
     get:
       operationId: salud
@@ -39,7 +151,15 @@ paths:
       responses:
         '200': { description: Servicio sano }
 components:
+  securitySchemes:
+    servicio: { type: http, scheme: bearer, bearerFormat: JWT, description: Token client credentials de la interoperabilidad }
   schemas:
+    Activacion:
+      type: object
+      required: [activacion, venceEn]
+      properties:
+        activacion: { type: string, description: 'Token del enlace de activación, {id del traslado}.{HMAC}' }
+        venceEn: { type: string, format: date-time }
     Registro:
       type: object
       required: [cedula, nombre, apellido, direccion, correoContacto, telefono, clave]

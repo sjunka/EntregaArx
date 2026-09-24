@@ -5,7 +5,7 @@ export const normalizarTitulo = (t) => t.normalize('NFD').replace(/\p{Diacritic}
 
 // Repositorio de documentos en la base de custodia (RD-11). Un documento es del titular por cédula.
 const aDocumento = (f) => f && ({
-  id: f.id, titular: f.titular, titulo: f.titulo, clase: f.clase, estado: f.estado, tipo: f.tipo, tamano: Number(f.tamano),
+  id: f.id, titular: f.titular, titulo: f.titulo, clase: f.clase, estado: f.estado, tipo: f.tipo, tamano: Number(f.tamano), origen: f.origen,
   sha256: f.sha256, creado: f.creado, emisor: f.emisor, idExterno: f.id_externo, sustituidoPor: f.sustituido_por, motivo: f.motivo,
   autenticacion: f.autenticado_en ? { fecha: f.autenticado_en, respuesta: f.respuesta_centralizador } : null,
 })
@@ -43,6 +43,10 @@ export async function migrar(db) {
     await db.query('UPDATE documentos SET titulo_norm = $2 WHERE id = $1', [f.id, normalizarTitulo(f.titulo)])
   }
   await db.query('CREATE INDEX IF NOT EXISTS documentos_titular ON documentos (titular)')
+  // HU-09: Traslado de entrada. El documento conserva su clase, no consume cuota (origen IS NOT NULL) y es idempotente por (origen, origen_id).
+  await db.query('ALTER TABLE documentos ADD COLUMN IF NOT EXISTS origen text')
+  await db.query('ALTER TABLE documentos ADD COLUMN IF NOT EXISTS origen_id text')
+  await db.query('CREATE UNIQUE INDEX IF NOT EXISTS documentos_origen ON documentos (origen, origen_id) WHERE origen IS NOT NULL')
   // HU-06: bandeja de salida con los eventos hacia MS-05 (índice) y MS-02 (auditoría), ADR-0018.
   await crearBandeja(db).migrar()
 }
@@ -73,7 +77,7 @@ export function crearRepositorio(db) {
     uso: async (titular) => {
       const { rows: [u] } = await db.query(
         `SELECT count(*)::int AS documentos, coalesce(sum(tamano), 0)::bigint AS bytes
-         FROM documentos WHERE titular = $1 AND clase = 'temporal' AND (${RESERVA})`, [titular])
+         FROM documentos WHERE titular = $1 AND clase = 'temporal' AND origen IS NULL AND (${RESERVA})`, [titular])
       return { documentos: u.documentos, bytes: Number(u.bytes) }
     },
     crear: (d) => db.query(
@@ -96,6 +100,29 @@ export function crearRepositorio(db) {
       `SELECT * FROM documentos WHERE titular = $1
          AND ((clase = 'temporal' AND estado IN ('cargado', 'sustituido')) OR (clase = 'certificado' AND estado = 'vigente'))
        ORDER BY creado DESC`, [titular])).rows.map(aDocumento),
+    // Traslado de entrada (HU-09): el documento llega Cargado (Temporal) o Vigente (Certificado) y el evento de carga sale en la misma transacción.
+    buscarPorOrigen: (origen, idOrigen) => uno('SELECT * FROM documentos WHERE origen = $1 AND origen_id = $2', [origen, idOrigen]),
+    crearTrasladado: (d) => conEvento(
+      `INSERT INTO documentos (id, titular, titulo, titulo_norm, tipo, tamano, sha256, clase, estado, emisor, origen, origen_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) ON CONFLICT (origen, origen_id) WHERE origen IS NOT NULL DO NOTHING RETURNING *`,
+      [d.id, d.titular, d.titulo, normalizarTitulo(d.titulo), d.tipo, d.tamano, d.sha256, d.clase, d.clase === 'certificado' ? 'vigente' : 'cargado', d.emisor ?? null, d.origen, d.idOrigen],
+      (f) => ['documento.cargado', { id: f.id, cedula: f.titular, clase: f.clase, titulo: f.titulo, tipo: f.tipo, tamano: f.tamano, ...(f.clase === 'certificado' && f.emisor && { emisor: f.emisor }), creadoEn: ahora() }, `documento.cargado:${f.id}`]),
+    // Un Traslado que falló: se descarta lo que llegó de ese origen para ese titular (y sus eventos de eliminación). Devuelve lo descartado.
+    async descartarTraslado(titular, origen) {
+      const c = await db.connect()
+      try {
+        await c.query('BEGIN')
+        const { rows } = await c.query('DELETE FROM documentos WHERE titular = $1 AND origen = $2 RETURNING *', [titular, origen])
+        for (const f of rows) await bandeja.encolar('documento.eliminado', titular, { id: f.id, cedula: titular, eliminadoEn: ahora() }, { cliente: c, dedupe: `documento.eliminado:${f.id}` })
+        await c.query('COMMIT')
+        return rows.map(aDocumento)
+      } catch (err) {
+        await c.query('ROLLBACK')
+        throw err
+      } finally {
+        c.release()
+      }
+    },
     // Idempotente por (emisor, idExterno): un reenvío devuelve el documento que ya existe.
     async crearCertificado(d) {
       const { rows } = await db.query(

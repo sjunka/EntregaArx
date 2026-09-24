@@ -24,10 +24,10 @@ export function crearLimite({ max = 5, ventanaMs = 3_600_000, ahora = Date.now }
 }
 
 // dependencias: db (query), pasarela (consultar, registrar), keycloak (Admin API: existe, crearDeshabilitado, habilitar, borrar),
-// registraduria (verificar). confiarProxy: saltos de proxy de confianza para req.ip (0 si se publica directo).
+// registraduria (verificar), traslados ({ interno, publico } de rutasTraslados). confiarProxy: saltos de proxy de confianza para req.ip (0 si se publica directo).
 export function crearApp({
   db, pasarela, keycloak, registraduria = registraduriaSimulada, limite = crearLimite(), origenes = [],
-  operador = 'Mi Carpeta Segura', confiarProxy = 0,
+  operador = 'Mi Carpeta Segura', confiarProxy = 0, traslados,
 }) {
   const app = express()
   app.set('trust proxy', confiarProxy)
@@ -39,6 +39,11 @@ export function crearApp({
     req.method === 'OPTIONS' ? res.sendStatus(204) : next()
   })
   app.use(express.json({ limit: '4kb' }))
+  // HU-09: traslado de entrada (rutas de servicio de MS-07 y enlace de activación del ciudadano).
+  if (traslados) {
+    app.use('/interno/traslados', traslados.interno)
+    app.use('/traslados', traslados.publico)
+  }
 
   app.get('/salud', (_req, res) => res.json({ estado: 'ok' }))
 

@@ -21,8 +21,9 @@ export function validarEmision(e = {}) {
 }
 
 // dependencias: custodia (registrar, verificar, leer), autorizaciones (crearPeticion, consultarPeticion), pasarela (consultar),
-// bandeja (encolar), firmas (conoce, verificar, verificarFirma, verificarToken), envios ({ ciudadano, publico } de rutasEnvios, HU-08).
-export function crearApp({ custodia, autorizaciones, pasarela, bandeja, firmas, envios, origenes = [], operador = 'Mi Carpeta Segura' }) {
+// bandeja (encolar), firmas (conoce, verificar, verificarFirma, verificarToken), envios ({ ciudadano, publico } de rutasEnvios, HU-08),
+// traslados ({ peer, ciudadano } de rutasTraslados, HU-09).
+export function crearApp({ custodia, autorizaciones, pasarela, bandeja, firmas, envios, traslados, origenes = [], operador = 'Mi Carpeta Segura' }) {
   const app = express()
   app.use((req, res, next) => {
     const o = req.headers.origin
@@ -31,7 +32,8 @@ export function crearApp({ custodia, autorizaciones, pasarela, bandeja, firmas, 
     }
     req.method === 'OPTIONS' ? res.sendStatus(204) : next()
   })
-  // RI-06: aquí solo entran metadatos y una firma; el archivo sube directo al almacén.
+  // RI-06: aquí solo entran metadatos y una firma; el archivo sube directo al almacén. Un traslado trae hasta 50 documentos con su URL.
+  app.use('/api/transferCitizen', express.json({ limit: '256kb' }))
   app.use(express.json({ limit: '8kb' }))
 
   app.get('/salud', (_req, res) => res.json({ estado: 'ok' }))
@@ -84,6 +86,10 @@ export function crearApp({ custodia, autorizaciones, pasarela, bandeja, firmas, 
     }
   })
 
+  if (traslados) {
+    app.use('/api/transferCitizen', traslados.peer)
+    app.use('/traslados', traslados.ciudadano)
+  }
   if (envios) {
     app.use('/envios', envios.ciudadano)
     app.use('/api/enlaces', envios.publico)

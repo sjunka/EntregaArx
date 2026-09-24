@@ -1,11 +1,12 @@
 openapi: 3.1.0
 info:
   title: Interoperabilidad (MS-07)
-  version: 0.3.0
+  version: 0.4.0
   description: >
     Recibe los documentos que emiten las entidades (HU-05: RF-03.2, RF-03.3, RNF-05) y las peticiones de
     documentos de las entidades al ciudadano (HU-07: RF-04.3, RF-04.4, RI-08) y el envío del ciudadano a una entidad
-    sin operador por correo con enlaces temporales (HU-08: RF-04.1, RF-04.2, RF-03.4). Como no existe
+    sin operador por correo con enlaces temporales (HU-08: RF-04.1, RF-04.2, RF-03.4) y el Traslado de entrada de un
+    ciudadano afiliado a otro operador (HU-09: RF-01.8, RF-03.3, RF-03.5, RF-03.8, RI-03, RNF-22). Como no existe
     contrato MinTIC para esta interfaz (B-01), el operador define uno propio y lo dice aquí.
     La entidad se autentica firmando: cada solicitud lleva un JWS compacto (RS256 o ES256) cuyo
     `iss` es el emisor y cuyo payload repite `idExterno`, `cedula`, `titulo` y `sha256`; se verifica con
@@ -213,6 +214,62 @@ paths:
         '404': { $ref: '#/components/responses/Problema' }
         '410': { $ref: '#/components/responses/Problema' }
         '503': { $ref: '#/components/responses/Problema' }
+  /api/transferCitizen:
+    post:
+      operationId: recibirTraslado
+      summary: Un operador par traslada a un ciudadano hacia Mi Carpeta Segura (HU-09)
+      description: >
+        Contrato propio (B-01, B-16, RF-03.8) sobre la secuencia acordada: el origen da de baja al ciudadano en GovCarpeta,
+        llama aquí con sus datos y las URL de sus documentos, y espera el POST a su `confirmAPI` con `{ id, req_status }`
+        (1 si todo llegó y la afiliación cambió; 0 si falló y conserva la carpeta). El operador se autentica firmando (JWS
+        RS256 o ES256, llave en el directorio `EMISORES`) un payload `{ iss, id, confirmAPI, sha256: [huellas en orden] }`.
+        Firma que no verifica o no cubre esos campos: 401. Operador sin llave: 403. `confirmAPI` no https o en la red
+        interna: 422. El ciudadano ya afiliado aquí o todavía afiliado a otro operador (el origen no lo dio de baja):
+        409 (RI-03). Idempotente por (operador, id): un reenvío con el traslado activo devuelve 200 con el mismo enlace.
+        Responde 202: aquí se crea la cuenta institucional del ciudadano (RF-01.5) con un enlace de activación
+        (`activacion`) que el origen le muestra, y el traslado se procesa en segundo plano: la custodia descarga y verifica
+        cada documento (idempotente, reintenta hasta 3 veces), y solo con todos guardados MS-03 registra la afiliación en
+        GovCarpeta y se confirma al origen con req_status 1. Si un documento no llega tras los reintentos o GovCarpeta
+        rechaza la afiliación, se descarta lo recibido, se cancela la cuenta y se confirma con req_status 0.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Traslado' }
+      responses:
+        '202':
+          description: Traslado en curso
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrasladoEstado' }
+        '200':
+          description: Reenvío idempotente
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrasladoEstado' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '403': { $ref: '#/components/responses/Problema' }
+        '409': { $ref: '#/components/responses/Problema' }
+        '413': { $ref: '#/components/responses/Problema' }
+        '422': { $ref: '#/components/responses/Problema' }
+        '503': { $ref: '#/components/responses/Problema' }
+  /traslados/actual:
+    get:
+      operationId: avanceDelTraslado
+      summary: El avance del traslado del ciudadano
+      description: >
+        Bearer JWT con audiencia `interoperabilidad` y `azp: portal`. Devuelve el último traslado del titular con cuántos
+        documentos llevan recibidos; 404 si no tiene ninguno.
+      security: [{ bearer: [] }]
+      responses:
+        '200':
+          description: Traslado del ciudadano
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TrasladoEstado' }
+        '401': { $ref: '#/components/responses/Problema' }
+        '404': { $ref: '#/components/responses/Problema' }
   /salud:
     get:
       operationId: salud
@@ -232,6 +289,48 @@ components:
     bearer: { type: http, scheme: bearer, bearerFormat: JWT }
     entidad: { type: http, scheme: bearer, bearerFormat: JWS, description: 'JWS compacto RS256 o ES256 con { iss, iat, exp }, vida máxima de 5 minutos' }
   schemas:
+    Traslado:
+      type: object
+      required: [operador, id, nombre, apellido, direccion, correo, correoContacto, telefono, confirmAPI, documentos, firma]
+      properties:
+        operador: { type: string, description: Operador de origen; es el `iss` de la firma }
+        id: { type: string, pattern: '^[0-9]{6,10}$', description: Cédula del ciudadano }
+        nombre: { type: string, maxLength: 60 }
+        apellido: { type: string, maxLength: 60 }
+        direccion: { type: string, maxLength: 120, description: GovCarpeta la exige al registrar al ciudadano }
+        correo: { type: string, format: email, description: Cuenta institucional del ciudadano; sobrevive al traslado (RF-01.5) }
+        correoContacto: { type: string, format: email }
+        telefono: { type: string, pattern: '^3[0-9]{9}$', description: Celular; MS-09 le avisa por aquí }
+        confirmAPI: { type: string, format: uri, description: 'https público; aquí se confirma con { id, req_status }' }
+        documentos:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items:
+            type: object
+            required: [idExterno, titulo, clase, tipo, tamano, sha256, url]
+            properties:
+              idExterno: { type: string, maxLength: 120, description: Identificador en el origen; único en el traslado }
+              titulo: { type: string, maxLength: 120 }
+              clase: { type: string, enum: [temporal, certificado] }
+              emisor: { type: string, description: Obligatorio en los Certificados }
+              tipo: { type: string, enum: [application/pdf, image/jpeg, image/png] }
+              tamano: { type: integer, minimum: 1, maximum: 10485760 }
+              sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
+              url: { type: string, format: uri, description: URL de lectura que la custodia descarga; sin redirecciones }
+        firma: { type: string, description: 'JWS compacto cuyo payload es { iss, id, confirmAPI, sha256: [huellas] }' }
+    TrasladoEstado:
+      type: object
+      required: [id, operador, estado, total, recibidos, creado]
+      properties:
+        id: { type: string, format: uuid }
+        operador: { type: string }
+        estado: { type: string, enum: [en-curso, completo, fallido] }
+        total: { type: integer }
+        recibidos: { type: integer }
+        creado: { type: string, format: date-time }
+        completadoEn: { type: string, format: date-time }
+        activacion: { type: string, format: uri, description: 'Solo en la respuesta a transferCitizen: enlace de activación que el origen muestra al ciudadano' }
     Envio:
       type: object
       required: [id, correo, documentos, estado, creado, venceEn]

@@ -23,9 +23,9 @@ export function crearProveedorToken({ url, clientId, secreto, ahora = Date.now }
 }
 
 export function crearCustodia({ url, token, timeoutMs = 30_000 }) {
-  async function llamar(ruta, cuerpo) {
+  async function llamar(ruta, cuerpo, metodo = 'POST') {
     const r = await fetch(url + ruta, {
-      method: 'POST', signal: AbortSignal.timeout(timeoutMs),
+      method: metodo, signal: AbortSignal.timeout(timeoutMs),
       headers: { authorization: `Bearer ${await token()}`, ...(cuerpo && { 'content-type': 'application/json' }) },
       body: cuerpo && JSON.stringify(cuerpo),
     })
@@ -40,5 +40,9 @@ export function crearCustodia({ url, token, timeoutMs = 30_000 }) {
     leer: (l) => llamar('/interno/lecturas', l),
     // Qué documentos de la lista son del titular y están en su Carpeta: { documentos: [{ id, titulo }] }.
     comprobar: (c) => llamar('/interno/comprobacion', c),
+    // HU-09: la custodia descarga el documento de la URL del origen, comprueba tamaño y SHA-256 y lo guarda. Idempotente por (operador, idExterno).
+    recibirTraslado: (d) => llamar('/interno/traslados/documentos', d),
+    // El traslado falló: se descarta lo que llegó de ese origen para ese titular. Idempotente.
+    descartarTraslado: ({ cedula, operador }) => llamar(`/interno/traslados/${cedula}?operador=${encodeURIComponent(operador)}`, undefined, 'DELETE'),
   }
 }

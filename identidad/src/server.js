@@ -25,10 +25,10 @@ if (process.argv.includes('--migrar')) {
     usuarios: crearUsuarios(db),
     clientes: { portal: lista(env.PORTAL_REDIRECTS ?? 'http://localhost:4173/*,http://localhost:5173/*') },
     administradores: env.KC_AFILIACION_SECRETO ? { 'afiliacion-admin': env.KC_AFILIACION_SECRETO } : {},
-    // Cada servicio pide token para los servicios que llama: la interoperabilidad a la custodia y a autorizaciones (HU-07),
+    // Cada servicio pide token para los servicios que llama: la interoperabilidad a la custodia, autorizaciones (HU-07) y afiliación (HU-09),
     // la custodia a autorizaciones (RI-08).
     servicios: {
-      ...(env.KC_INTEROP_SECRETO && { interoperabilidad: { secreto: env.KC_INTEROP_SECRETO, audiencia: ['custodia', 'autorizaciones'] } }),
+      ...(env.KC_INTEROP_SECRETO && { interoperabilidad: { secreto: env.KC_INTEROP_SECRETO, audiencia: ['custodia', 'autorizaciones', 'afiliacion'] } }),
       ...(env.KC_CUSTODIA_SECRETO && { custodia: { secreto: env.KC_CUSTODIA_SECRETO, audiencia: 'autorizaciones' } }),
     },
     origenes: lista(env.ORIGENES ?? 'http://localhost:4173,http://localhost:5173'),
