@@ -65,6 +65,17 @@ Cambiar a Keycloak es solo cambiar variables de entorno:
 | `KC_CUSTODIA_SECRETO` | identidad y custodia | cliente de servicio `custodia` (client credentials hacia autorizaciones, RI-08) |
 | `KEYCLOAK_URL`, `KEYCLOAK_SECRETO` | afiliación | `http://identidad:8080`, `KC_AFILIACION_SECRETO` |
 
+## Demo en la nube (entrega 3)
+
+SPA: https://sjunka.github.io/EntregaArx/. Los servicios están en Cloud Run y la identidad en Keycloak (realm `carpeta`, en español). El despliegue escribe en el GovCarpeta real (ADR-0025).
+
+- Registro: **Crear mi carpeta**. La cédula queda registrada en GovCarpeta a nombre de Mi Carpeta Segura. Afiliación admite 5 registros por hora desde una misma conexión.
+- Ingreso: **Ingresar** con la cuenta de demostración o con la cuenta institucional que entrega el registro.
+- Carga: **Subir documento** (PDF, JPG o PNG de hasta 10 MB). El archivo va directo a Cloud Storage por URL prefirmada.
+- Autenticación: **Autenticar con GovCarpeta** en un documento temporal. GovCarpeta responde en menos de 1 s.
+
+Validado el 24 de septiembre de 2026. El resumen está en `docs/despliegue-gcp-resumen.pdf`.
+
 ## Despliegue en GCP (ADR-0015)
 
 Variante económica en `mcs-entrega-2026` (us-east1): 10 servicios y Keycloak en Cloud Run, Cloud SQL `db-f1-micro`, VM `e2-small` con Kafka y Schema Registry, MongoDB Atlas M0 y la SPA en GitHub Pages (https://sjunka.github.io/EntregaArx/). Detalle en `docs/despliegue-gcp.md`.
@@ -93,6 +104,11 @@ terraform -chdir=infra/terraform destroy        # apagar (el proyecto Atlas y su
 | HU-06 Consulta y descarga | RF-02.6 búsqueda por título, clase y fecha sobre el índice de carpeta (MS-05, MongoDB alimentado por eventos), RF-02.7 descarga por URL prefirmada de 60 s y cada acceso en la bitácora solo-append de MS-02, RNF-04 lista desde el índice, RNF-01 si el almacén no responde el documento sigue en la lista y se reintenta (ADR-0019) |
 | HU-07 Autorización documento a documento | RF-04.3 la entidad pide documentos con una petición firmada (JWS) que el ciudadano ve con entidad, documentos y propósito, RF-04.4 aprueba documento por documento o rechaza la petición completa y la entidad solo recibe lo autorizado, RF-04.5 autorización de 72 h que se revoca de inmediato, RI-08 MS-06 decide antes de que MS-04 firme la URL de lectura y sin decisión no se firma, cada lectura de un tercero queda en la auditoría (ADR-0020) |
 | HU-08 Envío a entidad no afiliada | RF-04.1 y RF-04.2 el ciudadano arma el paquete y escribe el correo de la entidad, que recibe un enlace temporal de 72 h por documento y nunca el archivo (B-14), el envío pasa por la decisión de autorizaciones (RI-08 en cada apertura del enlace) y queda en la bitácora de accesos, RF-03.4 entrega alterna por correo con reintento idempotente (retroceso exponencial, sin duplicar el correo) y confirmación de entrega al ciudadano por su canal (ADR-0021) |
+| HU-09 Traslado de entrada | RF-01.8, RF-03.3, RF-03.5 y RF-03.8 el ciudadano llega desde otro operador con sus documentos, RI-03 una sola afiliación, RNF-22 |
+| HU-10 Caso PQRS Premium | RF-07.2 y RF-07.3 la empresa Premium abre un caso y pide documentos desde él, RI-07, catálogo, casos y medición de uso en MS-11 (ADR-0022) |
+| HU-11 Consulta de accesos | RF-09.4 y RF-09.5 el ciudadano ve quién consultó sus documentos y cuándo, RNF-14 |
+| HU-12 Analítica anonimizada | RF-08.1, RF-08.2 y RF-08.6 el analista del Estado consulta metadatos anonimizados en MS-10, RNF-15 (ADR-0023) |
+| HU-13 Traslado de salida | RF-01.7, RF-01.8, RF-03.1, RF-03.2, RF-03.5 y RF-03.8 con `transferCitizen` y `transferCitizenConfirm`, RI-01 a GovCarpeta solo viajan URL y datos de afiliación, los documentos llegan al destino antes de cerrar la cuenta (ADR-0024) |
 
 ## Eventos y entidades de prueba
 
