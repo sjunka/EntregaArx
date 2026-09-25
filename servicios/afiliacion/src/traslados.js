@@ -141,9 +141,9 @@ const aFila = (f) => f && ({
   cedula: f.cedula, cuenta: f.cuenta, estado: f.estado, trasladoId: f.traslado_id, keycloakId: f.keycloak_id, datos: f.datos, creado: f.creado, activadoEn: f.activado_en,
 })
 
+// El CHECK de estado lo fija migrarSalida, que corre después y admite todos los estados. Recrearlo aquí
+// sin 'salida' rompe la migración repetida cuando ya hay ciudadanos trasladados hacia otro operador.
 export async function migrarTraslados(db) {
-  await db.query('ALTER TABLE ciudadanos DROP CONSTRAINT IF EXISTS ciudadanos_estado_check')
-  await db.query("ALTER TABLE ciudadanos ADD CONSTRAINT ciudadanos_estado_check CHECK (estado IN ('pendiente', 'afiliado', 'traslado'))")
   await db.query('ALTER TABLE ciudadanos ADD COLUMN IF NOT EXISTS traslado_id uuid UNIQUE')
   await db.query('ALTER TABLE ciudadanos ADD COLUMN IF NOT EXISTS keycloak_id text')
   await db.query('ALTER TABLE ciudadanos ADD COLUMN IF NOT EXISTS datos jsonb')
