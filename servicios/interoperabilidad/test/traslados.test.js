@@ -6,7 +6,7 @@ import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose'
 import { crearApp } from '../src/app.js'
 import { crearVerificador } from '../src/auth.js'
 import { crearVerificadorFirmas } from '../src/firma.js'
-import { crearProcesador, MAX_INTENTOS_DOCUMENTO, rutasTraslados } from '../src/traslados.js'
+import { crearProcesador, leerTraslado, MAX_INTENTOS_DOCUMENTO, rutasTraslados } from '../src/traslados.js'
 import { ErrorAfiliacion } from '../src/afiliacion.js'
 import { ErrorCustodia } from '../src/custodia.js'
 
@@ -20,11 +20,11 @@ const { privateKey, publicKey } = await generateKeyPair('RS256')
 const jwks = createLocalJWKSet({ keys: [{ ...(await exportJWK(publicKey)), kid: 'k1', alg: 'RS256' }] })
 const tokenCiudadano = (cedula = '1012345678') => new SignJWT({ azp: 'portal', cedula }).setProtectedHeader({ alg: 'RS256', kid: 'k1' }).setIssuer(EMISOR).setAudience('interoperabilidad').setIssuedAt().setExpirationTime('5m').sign(privateKey)
 
-// Formato del curso: título => [URL]. El id de cada documento en el origen se deriva del título y su posición.
+// Formato del curso: título => [URL]. El id de cada documento en el origen se deriva de la cédula, el título y su posición.
 const URLS = { 'Cédula': ['https://origen.test/d/a1?firma=1'], 'Diploma': ['https://origen.test/d/a2?firma=1'], 'Recibo': ['https://origen.test/d/a3?firma=1'] }
 const TRASLADO = { id: 1012345678, citizenName: 'Ana María Gil', citizenEmail: 'ana.gil@origen.test', urlDocuments: URLS, confirmAPI: 'https://origen.test/api/transferCitizenConfirm' }
 const ORIGEN = 'origen.test' // el operador de origen se identifica por el host de confirmAPI
-const [A1, A2, A3] = ['Cédula#0', 'Diploma#0', 'Recibo#0']
+const [A1, A2, A3] = ['1012345678:Cédula#0', '1012345678:Diploma#0', '1012345678:Recibo#0']
 
 // Doble en memoria del repositorio Postgres (src/traslados.js), con el mismo contrato y un reloj que la prueba controla.
 function repoEnMemoria(reloj) {
@@ -121,6 +121,11 @@ test('recibe el traslado del curso: crea la cuenta por MS-03, le envía el enlac
     assert.equal(f.recibidos.length, 0, 'recibir la solicitud no descarga nada: lo hace el procesador')
     assert.deepEqual(f.orden, [])
   })
+})
+
+test('dos ciudadanos del mismo origen con documentos del mismo título no comparten id: la custodia no los toma por uno solo', () => {
+  const ids = (id) => leerTraslado({ ...TRASLADO, id }).documentos.map((d) => d.idExterno)
+  assert.notDeepEqual(ids(1012345678), ids(1098765432))
 })
 
 test('un nombre de una sola palabra y un id como texto también sirven', async () => {

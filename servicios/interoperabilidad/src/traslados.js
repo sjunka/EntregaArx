@@ -51,7 +51,8 @@ export function leerTraslado(t = {}) {
     if (!Array.isArray(urls) || !urls.length) return { error: `«${titulo}» no trae su URL.` }
     for (const [i, url] of urls.entries()) {
       if (typeof url !== 'string' || url.length > 2000 || !/^https?:\/\//.test(url)) return { error: `La URL de «${titulo}» no es válida.` }
-      documentos.push({ idExterno: `${titulo.trim()}#${i}`, titulo: titulo.trim(), clase: 'temporal', url })
+      // El id en el origen lleva la cédula: la custodia deduplica por (operador, id) y dos ciudadanos del mismo origen repiten títulos.
+      documentos.push({ idExterno: `${cedula}:${titulo.trim()}#${i}`, titulo: titulo.trim(), clase: 'temporal', url })
     }
   }
   if (!documentos.length || documentos.length > MAX_DOCUMENTOS) return { error: `El traslado debe traer entre 1 y ${MAX_DOCUMENTOS} documentos.` }
