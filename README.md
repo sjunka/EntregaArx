@@ -89,7 +89,7 @@ curl -X POST $ENTIDAD/peticiones -H "x-demo-clave: $CLAVE" -H 'content-type: app
 - HU-06, HU-08 y HU-11: desde la SPA del ciudadano (**Enviar** manda el correo a Mailpit).
 - HU-10: **Ingresar** con `tramites@premium.carpetacolombia.co` (con plan) o `servicios@basico.carpetacolombia.co` (sin plan).
 - HU-12: **Ingresar** con `analista@mintic.carpetacolombia.co`. Una región con menos de 10 diplomas sale como «Reservado».
-- HU-09 y HU-13 (traslados) se muestran en compose.
+- HU-09 y HU-13 (traslados, ADR-0027): Mi Carpeta Segura publica en GovCarpeta su `transferAPIURL` (`https://mcs-interoperabilidad-679270359263.us-east1.run.app/api/transferCitizen`) y recibe el formato del curso (`id`, `citizenName`, `citizenEmail`, `urlDocuments`, `confirmAPI`). El enlace de activación llega a Mailpit. Para HU-13, **Trasladarme** lista los operadores de GovCarpeta que publican su dirección; el traslado funciona con los que implementan `transferCitizen`.
 
 ## Despliegue en GCP (ADR-0015)
 

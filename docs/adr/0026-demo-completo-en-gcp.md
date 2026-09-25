@@ -9,7 +9,7 @@ El despliegue de la entrega 3 solo mostraba HU-01 a HU-04 en la nube. HU-05, HU-
 - `mcs-entidad`: la universidad simulada (`infra/entidad-simulada`) en Cloud Run. Su llave la genera Terraform (`tls_private_key`) y llega por Secret Manager, así un reinicio no deja a MS-07 con una llave pública vieja. MS-07 la registra en `EMISORES`. `/emitir` y `/peticiones` piden la cabecera `x-demo-clave` con la clave de las cuentas demo, para que nadie más firme como la universidad.
 - Mailpit en la VM de Kafka. Los servicios le mandan correo por SMTP (1025) dentro de la subred; la página (8025) es pública con usuario `demo` y la clave de `terraform output -raw mailpit_clave`. Ningún correo sale a Internet. Si se define `smtp_url`, se usa ese servidor en lugar de Mailpit.
 
-HU-09 y HU-13 (traslados) se siguen mostrando en compose: los operadores simulados tendrían que registrarse como operadores en el GovCarpeta real, y eso no está en el diseño.
+HU-09 y HU-13 (traslados) no se cubrían con esto: ADR-0027 los resuelve con el formato del curso y la dirección de traslado publicada en GovCarpeta.
 
 ## Arreglos que salieron del recorrido en la nube
 

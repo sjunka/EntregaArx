@@ -27,7 +27,9 @@ build entidad infra/entidad-simulada Dockerfile # ADR-0026
 
 # 3. Bases, Kafka y jobs primero: migraciones (RD-10) y esquemas corren antes de que existan los servicios.
 $TF apply -target=google_cloud_run_v2_job.migrar -target=google_cloud_run_v2_job.esquemas -target=google_compute_instance.kafka -target=google_compute_firewall.kafka -target=google_sql_database.base
+# Un job o un servicio fija la imagen al crearse: con la misma etiqueta, un redespliegue no toma la nueva sin este update.
 for j in afiliacion autorizaciones premium custodia interoperabilidad; do
+  gcloud run jobs update "mcs-migrar-$j" --project "$P" --region "$R" --image "$R-docker.pkg.dev/$P/mcs/$j:$TAG" --quiet
   gcloud run jobs execute "mcs-migrar-$j" --project "$P" --region "$R" --wait
 done
 # Kafka y Schema Registry tardan en arrancar en la VM: se reintenta el registro hasta 10 veces.
@@ -37,4 +39,7 @@ for i in $(seq 10); do
   sleep 30
 done
 $TF apply
+for s in afiliacion analitica auditoria custodia indice interoperabilidad notificaciones autorizaciones pasarela premium entidad; do
+  gcloud run services update "mcs-$s" --project "$P" --region "$R" --image "$R-docker.pkg.dev/$P/mcs/$s:$TAG" --quiet
+done
 $TF output urls
