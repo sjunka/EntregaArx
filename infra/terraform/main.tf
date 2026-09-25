@@ -1,7 +1,7 @@
 # Despliegue único y económico (ADR-0015). `terraform destroy` lo elimina todo.
 locals {
   aleatorios = ["kc_admin", "kc_afiliacion", "kc_interop", "kc_custodia", "kc_premium", "usuario_demo", "enlace", "activacion", "analitica_sal"]
-  apis       = ["run", "sqladmin", "compute", "secretmanager", "artifactregistry", "cloudbuild", "storage", "iam", "servicenetworking"]
+  apis       = ["run", "sqladmin", "compute", "secretmanager", "artifactregistry", "cloudbuild", "storage", "iam", "servicenetworking", "billingbudgets"]
   bases      = ["afiliacion", "custodia", "interoperabilidad", "autorizaciones", "premium", "keycloak"] # RD-11: una por servicio
   buckets    = { documentos = "${var.project_id}-documentos", certificados = "${var.project_id}-certificados" }
   registro   = "${var.region}-docker.pkg.dev/${var.project_id}/mcs"

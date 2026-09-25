@@ -3,3 +3,4 @@ project_id       = "mcs-entrega-0000"
 billing_account  = "000000-000000-000000"
 atlas_project_id = "0000000000000000000000000"
 spa_url          = "https://usuario.github.io/repositorio"
+presupuesto_mensual = 20

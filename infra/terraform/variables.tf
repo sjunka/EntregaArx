@@ -52,3 +52,9 @@ variable "smtp_url" {
   default     = ""
   sensitive   = true
 }
+
+variable "presupuesto_mensual" {
+  description = "Tope mensual en la moneda de la cuenta de facturación; avisa al 50, 90 y 100 %."
+  type        = number
+  default     = 20
+}

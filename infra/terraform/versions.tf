@@ -15,3 +15,11 @@ provider "google" {
 
 # Las llaves de Atlas llegan por MONGODB_ATLAS_PUBLIC_KEY y MONGODB_ATLAS_PRIVATE_KEY, nunca por el repo.
 provider "mongodbatlas" {}
+
+# La API de presupuestos exige un proyecto de cuota cuando se usan credenciales de usuario.
+provider "google" {
+  alias                 = "facturacion"
+  project               = var.project_id
+  billing_project       = var.project_id
+  user_project_override = true
+}
