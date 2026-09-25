@@ -2,11 +2,14 @@
   "name": "mi-carpeta-segura",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "local": "node scripts/local.mjs",
     "local:parar": "docker compose stop",
     "local:limpiar": "docker compose down -v --remove-orphans",
-    "local:e2e": "npm --prefix e2e ci && npx --prefix e2e playwright install chromium && npm --prefix e2e test"
+    "local:e2e": "npm --prefix e2e ci && npx --prefix e2e playwright install chromium && npm --prefix e2e test",
+    "diagramas": "node -e \"const c={darwin:'open',win32:'start \\\"\\\"'}[process.platform]??'xdg-open';require('child_process').execSync(c+' docs/diagramas/index.html')\""
   }
 }
