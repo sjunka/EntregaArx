@@ -76,6 +76,21 @@ SPA: https://sjunka.github.io/EntregaArx/. Los servicios están en Cloud Run y l
 
 Validado el 24 de septiembre de 2026. El resumen está en `docs/despliegue-gcp-resumen.pdf`.
 
+Para el resto de historias (ADR-0026), la universidad simulada está en `mcs-entidad` y los correos llegan a un Mailpit (usuario `demo`, clave de `terraform output -raw mailpit_clave`, URL de `terraform output mailpit`). `CLAVE` es la de las cuentas demo:
+
+```sh
+ENTIDAD=$(terraform -chdir=infra/terraform output -json urls | jq -r .entidad)
+# HU-05: la universidad emite un certificado; el aviso llega a Mailpit
+curl -X POST $ENTIDAD/emitir -H "x-demo-clave: $CLAVE" -H 'content-type: application/json' -d '{"cedula":"<cédula>","titulo":"Diploma de Ingeniería"}'
+# HU-07: la universidad pide documentos; el ciudadano decide en Solicitudes
+curl -X POST $ENTIDAD/peticiones -H "x-demo-clave: $CLAVE" -H 'content-type: application/json' -d '{"cedula":"<cédula>","proposito":"Verificar tus estudios","documentos":[{"titulo":"Diploma"}]}'
+```
+
+- HU-06, HU-08 y HU-11: desde la SPA del ciudadano (**Enviar** manda el correo a Mailpit).
+- HU-10: **Ingresar** con `tramites@premium.carpetacolombia.co` (con plan) o `servicios@basico.carpetacolombia.co` (sin plan).
+- HU-12: **Ingresar** con `analista@mintic.carpetacolombia.co`. Una región con menos de 10 diplomas sale como «Reservado».
+- HU-09 y HU-13 (traslados) se muestran en compose.
+
 ## Despliegue en GCP (ADR-0015)
 
 Variante económica en `mcs-entrega-2026` (us-east1): 10 servicios y Keycloak en Cloud Run, Cloud SQL `db-f1-micro`, VM `e2-small` con Kafka y Schema Registry, MongoDB Atlas M0 y la SPA en GitHub Pages (https://sjunka.github.io/EntregaArx/). Detalle en `docs/despliegue-gcp.md`.

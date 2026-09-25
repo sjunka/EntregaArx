@@ -6,7 +6,7 @@ write_files:
       [Service]
       ExecStartPre=-/usr/bin/docker rm -f kafka
       ExecStart=/usr/bin/docker run --name kafka --rm --network host -v /var/kafka:/var/lib/kafka/data \
-        -e KAFKA_NODE_ID=1 -e KAFKA_PROCESS_ROLES=broker,controller \
+        -e KAFKA_NODE_ID=1 -e KAFKA_PROCESS_ROLES=broker,controller -e KAFKA_LOG_DIRS=/var/lib/kafka/data \
         -e KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093 \
         -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://${ip}:9092 \
         -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
@@ -25,9 +25,16 @@ write_files:
         -e SCHEMA_REGISTRY_LISTENERS=http://0.0.0.0:8081 -e SCHEMA_REGISTRY_HEAP_OPTS="-Xmx256m -Xms256m" \
         confluentinc/cp-schema-registry:7.7.1
       Restart=always
+  # ADR-0026: buzón de prueba para el demo. SMTP 1025 solo desde la subred; la página 8025 pide usuario y clave.
+  - path: /etc/systemd/system/mailpit.service
+    content: |
+      [Service]
+      ExecStartPre=-/usr/bin/docker rm -f mailpit
+      ExecStart=/usr/bin/docker run --name mailpit --rm --network host -e MP_UI_AUTH=demo:${mailpit_clave} axllent/mailpit:v1.27.11
+      Restart=always
 runcmd:
-  # COS descarta el tráfico entrante salvo SSH: se abren Kafka y Schema Registry (la firewall de GCP ya limita a la subred).
-  - iptables -w -A INPUT -p tcp -m multiport --dports 9092,8081 -j ACCEPT
+  # COS descarta el tráfico entrante salvo SSH: se abren Kafka, Schema Registry y Mailpit (la firewall de GCP decide quién llega).
+  - iptables -w -A INPUT -p tcp -m multiport --dports 9092,8081,1025,8025 -j ACCEPT
   - mkdir -p /var/kafka && chown 1000:1000 /var/kafka
   - systemctl daemon-reload
-  - systemctl start kafka.service schema-registry.service
+  - systemctl start kafka.service schema-registry.service mailpit.service

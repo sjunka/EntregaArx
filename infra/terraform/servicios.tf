@@ -1,7 +1,7 @@
 locals {
   numero     = google_project.mcs.number
   nombres    = ["pasarela", "afiliacion", "autorizaciones", "premium", "custodia", "interoperabilidad", "notificaciones", "indice", "auditoria", "analitica"]
-  url        = { for n in concat(local.nombres, ["keycloak"]) : n => "https://mcs-${n}-${local.numero}.${var.region}.run.app" }
+  url        = { for n in concat(local.nombres, ["keycloak", "entidad"]) : n => "https://mcs-${n}-${local.numero}.${var.region}.run.app" }
   emisor     = "${local.url.keycloak}/realms/carpeta"
   spa_origen = regex("^https?://[^/]+", var.spa_url)
   kafka      = "${google_compute_address.kafka.address}:9092"
@@ -50,6 +50,7 @@ locals {
       env = merge(local.oidc, local.bus, {
         PASARELA_URL = local.url.pasarela, CUSTODIA_URL = local.url.custodia, AUTORIZACIONES_URL = local.url.autorizaciones, AFILIACION_URL = local.url.afiliacion,
         SPA_URL      = var.spa_url, URL_PUBLICA = local.url.interoperabilidad, ENLACES_URL = local.url.interoperabilidad, OIDC_INTERNO_URL = local.emisor, OPERADOR_NOMBRE = "Mi Carpeta Segura",
+        EMISORES     = "universidad-demo=${local.url.entidad}/.well-known/jwks.json", # ADR-0026
       })
       sec = { DATABASE_URL = "url_interoperabilidad", KC_INTEROP_SECRETO = "kc_interop", ENLACE_SECRETO = "enlace", SMTP_URL = "smtp_url" }
     }
@@ -59,7 +60,7 @@ locals {
     analitica      = { bus = true, env = merge(local.oidc, local.bus, { REGIONES_EMISORES = "universidad-demo=Bogotá D.C." }), sec = { MONGO_URL = "mongo_url", ANALITICA_SAL = "analitica_sal" } }
   }
 
-  imagen = { for n in concat(local.nombres, ["keycloak", "esquemas"]) : n => "${local.registro}/${n}:${var.imagen_tag}" }
+  imagen = { for n in concat(local.nombres, ["keycloak", "esquemas", "entidad"]) : n => "${local.registro}/${n}:${var.imagen_tag}" }
   migra  = [for n, s in local.svc : n if try(s.migra, false)]
 
   vpc = { network = google_compute_network.mcs.id, subnetwork = google_compute_subnetwork.mcs.id }
@@ -175,9 +176,47 @@ resource "google_cloud_run_v2_service" "keycloak" {
   depends_on = [google_secret_manager_secret_version.s, google_project_iam_member.run, google_sql_database.base]
 }
 
+# ADR-0026: la universidad simulada del demo (HU-05, HU-07, HU-12). Una sola instancia; /emitir y /peticiones piden x-demo-clave.
+resource "google_cloud_run_v2_service" "entidad" {
+  name                = "mcs-entidad"
+  location            = var.region
+  deletion_protection = false
+  template {
+    service_account = google_service_account.run.email
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 1
+    }
+    containers {
+      image = local.imagen.entidad
+      resources {
+        limits   = { cpu = "1", memory = "256Mi" }
+        cpu_idle = true
+      }
+      env {
+        name  = "INTEROP_URL"
+        value = local.url.interoperabilidad
+      }
+      dynamic "env" {
+        for_each = { LLAVE_PRIVADA = "entidad_llave", DEMO_CLAVE = "usuario_demo" }
+        content {
+          name = env.key
+          value_source {
+            secret_key_ref {
+              secret  = google_secret_manager_secret.s[env.value].secret_id
+              version = "latest"
+            }
+          }
+        }
+      }
+    }
+  }
+  depends_on = [google_secret_manager_secret_version.s, google_project_iam_member.run]
+}
+
 resource "google_cloud_run_v2_service_iam_member" "publico" {
-  for_each = toset(concat(local.nombres, ["keycloak"]))
-  name     = each.key == "keycloak" ? google_cloud_run_v2_service.keycloak.name : google_cloud_run_v2_service.svc[each.key].name
+  for_each = toset(concat(local.nombres, ["keycloak", "entidad"]))
+  name     = each.key == "keycloak" ? google_cloud_run_v2_service.keycloak.name : each.key == "entidad" ? google_cloud_run_v2_service.entidad.name : google_cloud_run_v2_service.svc[each.key].name
   location = var.region
   role     = "roles/run.invoker"
   member   = "allUsers"

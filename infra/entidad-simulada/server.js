@@ -3,7 +3,7 @@
 // tiene registrada como directorio de emisores) y, con POST /emitir, hace el recorrido completo de una entidad:
 // anuncia el documento firmado, sube el archivo a la URL prefirmada y confirma (HU-05); con POST /peticiones pide documentos
 // a un ciudadano y con POST /peticiones/consultar recoge los que autorizó (HU-07). Nunca guarda llaves en el repo.
-import { createHash, randomUUID } from 'node:crypto'
+import { createHash, createPrivateKey, createPublicKey, randomUUID } from 'node:crypto'
 import { createServer, request } from 'node:http'
 import { CompactSign, exportJWK, generateKeyPair } from 'jose'
 
@@ -12,9 +12,14 @@ const EMISOR = env.EMISOR ?? 'universidad-demo'
 const INTEROP = env.INTEROP_URL ?? 'http://interoperabilidad:8080'
 // Las URL prefirmadas se firman con el host que ve el navegador (localhost:9000); dentro de compose el almacén se
 // alcanza como minio:9000. Se conecta al segundo y se conserva el primero en la cabecera Host, que es lo que firma SigV4.
-const ALMACEN = env.ALMACEN_CONEXION ?? 'minio:9000'
+// Sin ALMACEN_CONEXION (GCP) la URL prefirmada es pública y se usa tal cual.
+const ALMACEN = env.ALMACEN_CONEXION
+// En GCP la llave llega de Secret Manager (LLAVE_PRIVADA, PKCS8): sobrevive a un reinicio y MS-07 no queda con una pública vieja.
+// Si se define DEMO_CLAVE, /emitir y /peticiones exigen la cabecera x-demo-clave: nadie más firma como la universidad.
+const DEMO_CLAVE = env.DEMO_CLAVE
 
-const propia = await generateKeyPair('RS256')
+const llave = env.LLAVE_PRIVADA && createPrivateKey(env.LLAVE_PRIVADA)
+const propia = llave ? { privateKey: llave, publicKey: createPublicKey(llave) } : await generateKeyPair('RS256')
 const ajena = await generateKeyPair('RS256') // para simular una firma que no es de esta entidad
 const jwk = { ...(await exportJWK(propia.publicKey)), kid: 'k1', alg: 'RS256', use: 'sig' }
 
@@ -26,7 +31,8 @@ async function json(url, opciones) {
   return { status: r.status, cuerpo: await r.json().catch(() => null) }
 }
 
-function subir(urlPrefirmada, bytes, tipo) {
+async function subir(urlPrefirmada, bytes, tipo) {
+  if (!ALMACEN) return (await fetch(urlPrefirmada, { method: 'PUT', headers: { 'content-type': tipo }, body: bytes })).status
   const u = new URL(urlPrefirmada)
   const [host, puerto] = ALMACEN.split(':')
   return new Promise((ok, falla) => {
@@ -71,6 +77,7 @@ createServer(async (req, res) => {
   try {
     if (req.url === '/salud') return responder(200, { estado: 'ok' })
     if (req.url === '/.well-known/jwks.json') return responder(200, { keys: [jwk] })
+    if (DEMO_CLAVE && req.headers['x-demo-clave'] !== DEMO_CLAVE) return responder(401, { error: 'falta la cabecera x-demo-clave' })
     if (req.method === 'POST' && req.url === '/emitir') {
       let cuerpo = ''
       for await (const c of req) cuerpo += c

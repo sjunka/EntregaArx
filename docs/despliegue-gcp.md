@@ -12,6 +12,7 @@ Sigue ADR-0015 y ADR-0014. Se despliega una sola vez, al final, en un proyecto n
 - Dos buckets de GCS con llaves HMAC para las URL prefirmadas (RI-06).
 - Secret Manager con todos los secretos, generados por Terraform. Ninguno entra al repo.
 - Jobs de Cloud Run para las migraciones (RD-10) y el registro de esquemas.
+- Para el demo (ADR-0026): la universidad simulada `mcs-entidad` en Cloud Run y Mailpit en la VM de Kafka (SMTP interno; la página, con usuario y clave).
 
 La SPA se publica en GitHub Pages (AD-11) con `.github/workflows/pages.yml`.
 

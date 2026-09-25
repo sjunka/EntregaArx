@@ -23,6 +23,7 @@ for s in afiliacion analitica auditoria custodia indice interoperabilidad notifi
 for s in autorizaciones pasarela premium; do build "$s" "servicios/$s" Dockerfile; done
 build keycloak infra/keycloak Dockerfile
 build esquemas . infra/gcp/esquemas.Dockerfile
+build entidad infra/entidad-simulada Dockerfile # ADR-0026
 
 # 3. Bases, Kafka y jobs primero: migraciones (RD-10) y esquemas corren antes de que existan los servicios.
 $TF apply -target=google_cloud_run_v2_job.migrar -target=google_cloud_run_v2_job.esquemas -target=google_compute_instance.kafka -target=google_compute_firewall.kafka -target=google_sql_database.base

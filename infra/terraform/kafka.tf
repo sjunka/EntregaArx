@@ -1,5 +1,5 @@
 # Kafka KRaft y Schema Registry en una sola VM e2-small (ADR-0015). La IP externa solo sirve para bajar las imágenes de Docker Hub
-# (evita un Cloud NAT); ninguna regla de firewall admite tráfico entrante desde fuera de la subred.
+# (evita un Cloud NAT). Desde fuera de la subred solo entra la página de Mailpit (ADR-0026), con usuario y clave.
 resource "google_compute_address" "kafka" {
   name         = "mcs-kafka"
   region       = var.region
@@ -11,6 +11,7 @@ resource "google_compute_instance" "kafka" {
   name         = "mcs-kafka"
   zone         = "${var.region}-b"
   machine_type = "e2-small"
+  tags         = ["mailpit"]
   boot_disk {
     initialize_params {
       image = "cos-cloud/cos-stable"
@@ -23,7 +24,7 @@ resource "google_compute_instance" "kafka" {
     access_config {}
   }
   metadata = {
-    user-data = templatefile("${path.module}/kafka-cloud-init.yaml.tftpl", { ip = google_compute_address.kafka.address })
+    user-data = templatefile("${path.module}/kafka-cloud-init.yaml.tftpl", { ip = google_compute_address.kafka.address, mailpit_clave = random_password.mailpit.result })
   }
   allow_stopping_for_update = true
   depends_on                = [google_project_service.api]

@@ -50,7 +50,19 @@ resource "google_compute_firewall" "kafka" {
   source_ranges = [google_compute_subnetwork.mcs.ip_cidr_range]
   allow {
     protocol = "tcp"
-    ports    = ["9092", "8081"]
+    ports    = ["9092", "8081", "1025"] # 1025: SMTP de Mailpit (ADR-0026)
+  }
+}
+
+# ADR-0026: la página de Mailpit es pública para el demo, detrás de usuario y clave (terraform output mailpit).
+resource "google_compute_firewall" "mailpit" {
+  name          = "mcs-mailpit"
+  network       = google_compute_network.mcs.name
+  source_ranges = ["0.0.0.0/0"]
+  target_tags   = ["mailpit"]
+  allow {
+    protocol = "tcp"
+    ports    = ["8025"]
   }
 }
 
@@ -145,6 +157,17 @@ resource "google_storage_hmac_key" "custodia" {
   service_account_email = google_service_account.custodia_s3.email
 }
 
+# ADR-0026: llave fija de la universidad simulada, para que MS-07 no se quede con una pública vieja si el servicio reinicia.
+resource "tls_private_key" "entidad" {
+  algorithm = "RSA"
+  rsa_bits  = 2048
+}
+
+resource "random_password" "mailpit" {
+  length  = 24
+  special = false
+}
+
 # Secretos: se generan aquí, viven en Secret Manager y en el estado (que no se versiona).
 resource "random_password" "secreto" {
   for_each = toset(local.aleatorios)
@@ -156,11 +179,12 @@ locals {
   secretos = merge(
     { for k in local.aleatorios : k => random_password.secreto[k].result },
     {
-      pg_clave   = random_password.sql.result
-      s3_acceso  = google_storage_hmac_key.custodia.access_id
-      s3_secreto = google_storage_hmac_key.custodia.secret
-      mongo_url  = local.mongo_url
-      smtp_url   = var.smtp_url == "" ? "smtp://sin-correo.invalid:25" : var.smtp_url
+      pg_clave      = random_password.sql.result
+      s3_acceso     = google_storage_hmac_key.custodia.access_id
+      s3_secreto    = google_storage_hmac_key.custodia.secret
+      mongo_url     = local.mongo_url
+      smtp_url      = var.smtp_url == "" ? "smtp://${google_compute_address.kafka.address}:1025" : var.smtp_url # sin SMTP real, Mailpit de la VM
+      entidad_llave = tls_private_key.entidad.private_key_pem_pkcs8
     },
     { for b in local.bases : "url_${b}" => "postgres://mcs:${random_password.sql.result}@${google_sql_database_instance.pg.private_ip_address}/${b}" },
   )
