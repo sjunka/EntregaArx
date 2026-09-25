@@ -11,7 +11,7 @@ svg text{font-family:system-ui,sans-serif}
 table{border-collapse:collapse;font-size:9.5pt}td,th{border:1px solid #ccd;padding:3px 7px;text-align:left}
 </style></head><body>
 <h1>Mi Carpeta Segura: despliegue en GCP</h1>
-<p class="sub">Ticket #16, variante económica (ADR-0015). Proyecto <code>mcs-entrega-2026</code>, región us-east1. Estado: desplegado, smoke 12/12 en verde y las 4 funciones de la entrega 3 validadas contra el GovCarpeta real (24 de septiembre de 2026).</p>
+<p class="sub">Ticket #16, variante económica (ADR-0015). Proyecto <code>mcs-entrega-2026</code>, región us-east1. Estado: desplegado, smoke 12/12 en verde y HU-01 a HU-12 validadas en la nube contra el GovCarpeta real (24 de septiembre de 2026). HU-13 queda lista para trasladar a un operador de otro equipo.</p>
 
 <h2>Arquitectura desplegada</h2>
 <svg viewBox="0 0 720 300" width="100%">
@@ -24,10 +24,11 @@ table{border-collapse:collapse;font-size:9.5pt}td,th{border:1px solid #ccd;paddi
 <text x="340" y="72" text-anchor="middle" font-size="10.5">premium · custodia · interoperabilidad</text>
 <text x="340" y="89" text-anchor="middle" font-size="10.5">notificaciones · índice · auditoría</text>
 <text x="340" y="106" text-anchor="middle" font-size="10.5">analítica</text>
+<text x="340" y="128" text-anchor="middle" font-size="10.5" fill="#0b4f8a">+ universidad simulada (mcs-entidad)</text>
 <text x="340" y="150" text-anchor="middle" font-size="10" fill="#555">Direct VPC egress</text>
 <text x="340" y="164" text-anchor="middle" font-size="10" fill="#555">subred 10.10.0.0/24</text>
 <rect x="520" y="20" width="190" height="50" rx="6" fill="#eef7ee" stroke="#2e7d32"/><text x="615" y="42" text-anchor="middle" font-weight="600">Cloud SQL Postgres</text><text x="615" y="58" text-anchor="middle" font-size="10">db-f1-micro, IP privada</text>
-<rect x="520" y="115" width="190" height="55" rx="6" fill="#fff4e5" stroke="#e67e00"/><text x="615" y="137" text-anchor="middle" font-weight="600">VM mcs-kafka (e2-small)</text><text x="615" y="153" text-anchor="middle" font-size="10">Kafka :9092 · Schema Reg. :8081</text>
+<rect x="520" y="115" width="190" height="60" rx="6" fill="#fff4e5" stroke="#e67e00"/><text x="615" y="137" text-anchor="middle" font-weight="600">VM mcs-kafka (e2-small)</text><text x="615" y="153" text-anchor="middle" font-size="10">Kafka :9092 · Schema Reg. :8081</text><text x="615" y="166" text-anchor="middle" font-size="10">Mailpit :1025 / :8025</text>
 <rect x="520" y="215" width="190" height="50" rx="6" fill="#eef7ee" stroke="#2e7d32"/><text x="615" y="237" text-anchor="middle" font-weight="600">MongoDB Atlas M0</text><text x="615" y="253" text-anchor="middle" font-size="10">índice y auditoría</text>
 </g>
 <g stroke="#555" fill="none" marker-end="url(#a)">
@@ -71,6 +72,25 @@ table{border-collapse:collapse;font-size:9.5pt}td,th{border:1px solid #ccd;paddi
 <li>En GCP, HU-03 y HU-04 recorren toda la interfaz. Solo fallan dos aserciones pensadas para compose: la URL de MinIO local y el texto del doble de GovCarpeta.</li>
 </ul>
 
+<h2>Demo completo en la nube (ADR-0026 y ADR-0027)</h2>
+<table><tr><th>Historia</th><th>En GCP</th></tr>
+<tr><td>HU-01 a HU-04</td><td>Registro, ingreso, carga y autenticación contra el GovCarpeta real.</td></tr>
+<tr><td>HU-05, HU-07, HU-12</td><td>La universidad simulada <code>mcs-entidad</code> emite certificados y pide documentos (cabecera <code>x-demo-clave</code>).</td></tr>
+<tr><td>HU-05, HU-08</td><td>Los correos llegan a Mailpit en la VM de Kafka (usuario <code>demo</code>, clave en <code>terraform output</code>).</td></tr>
+<tr><td>HU-06, HU-10, HU-11</td><td>Desde la SPA del ciudadano, de la empresa Premium y del titular.</td></tr>
+<tr><td>HU-09</td><td>Traslado de entrada con el formato del curso; validado con un origen de prueba y el GovCarpeta real.</td></tr>
+<tr><td>HU-13</td><td>Lista los operadores de GovCarpeta con dirección de traslado; necesita un destino que implemente <code>transferCitizen</code>.</td></tr></table>
+<p>Arreglos que salieron del recorrido completo:</p>
+<ul>
+<li>La pasarela no leía el operador en la respuesta real de <code>validateCitizen</code> (entre comillas y con «operador:»): certificados y peticiones respondían 422.</li>
+<li>Keycloak solo ponía <code>empresa</code> y <code>analista</code> en el token de acceso: la empresa y el analista entraban como ciudadanos.</li>
+<li>Kafka guardaba sus datos en <code>/tmp</code> del contenedor: un reinicio de la VM borraba tópicos y esquemas. Ahora usa <code>KAFKA_LOG_DIRS</code> en el disco.</li>
+<li>La migración de afiliación fallaba al repetirse con ciudadanos en <code>salida</code>.</li>
+<li>HU-09 solo aceptaba traslados firmados por nuestros operadores simulados. Recibe el formato del curso (<code>id</code>, <code>citizenName</code>, <code>citizenEmail</code>, <code>urlDocuments</code>, <code>confirmAPI</code>); la confianza viene de GovCarpeta y el ciudadano completa dirección y celular al activar.</li>
+<li>Con permiso explícito se publicó en GovCarpeta la dirección de traslado (<code>registerTransferEndPoint</code>) y se usa el id real del operador.</li>
+<li>Los jobs y servicios de Cloud Run fijan la imagen al crearse: <code>desplegar.sh</code> los actualiza en cada despliegue.</li>
+</ul>
+
 <h2 class="pb">Comandos</h2>
 <pre># Credenciales de Atlas (no versionadas)
 source .env.atlas && export MONGODB_ATLAS_PUBLIC_KEY MONGODB_ATLAS_PRIVATE_KEY
@@ -92,6 +112,18 @@ cd e2e && SMOKE_URLS="$(terraform -chdir=../infra/terraform output -json urls)" 
   USUARIO_DEMO_CLAVE=$(terraform -chdir=../infra/terraform output -raw usuario_demo_clave) \
   BASE_URL=https://sjunka.github.io/EntregaArx/ npx playwright test smoke-gcp
 
+# Demo: la universidad emite un certificado (HU-05) y el buzón de Mailpit
+ENTIDAD=$(terraform -chdir=infra/terraform output -json urls | jq -r .entidad)
+curl -X POST $ENTIDAD/emitir -H "x-demo-clave: $CLAVE" -H 'content-type: application/json' \
+  -d '{"cedula":"&lt;cédula&gt;","titulo":"Diploma de Ingeniería"}'
+terraform -chdir=infra/terraform output mailpit
+
+# Dirección de traslado en GovCarpeta (escritura con permiso explícito, ya hecha)
+curl -X PUT https://govcarpeta-apis-4905ff3c005b.herokuapp.com/apis/registerTransferEndPoint \
+  -H 'content-type: application/json' -d '{"idOperator":"6aa8afa3bcc6df0002eb66e5",
+  "endPoint":"https://mcs-interoperabilidad-679270359263.us-east1.run.app/api/transferCitizen",
+  "endPointConfirm":"https://mcs-interoperabilidad-679270359263.us-east1.run.app/api/transferCitizenConfirm"}'
+
 # Diagnóstico de la VM de Kafka
 gcloud compute instances get-serial-port-output mcs-kafka --zone us-east1-b
 gcloud logging read 'resource.labels.job_name="mcs-esquemas"' --limit 10
@@ -103,8 +135,12 @@ terraform -chdir=infra/terraform destroy</pre>
 <table><tr><th>Recurso</th><th>URL</th></tr>
 <tr><td>SPA</td><td>https://sjunka.github.io/EntregaArx/</td></tr>
 <tr><td>Keycloak (emisor)</td><td>https://mcs-keycloak-679270359263.us-east1.run.app/realms/carpeta</td></tr>
-<tr><td>Servicios</td><td>https://mcs-&lt;servicio&gt;-679270359263.us-east1.run.app</td></tr></table>
+<tr><td>Servicios</td><td>https://mcs-&lt;servicio&gt;-679270359263.us-east1.run.app</td></tr>
+<tr><td>Universidad simulada</td><td>https://mcs-entidad-679270359263.us-east1.run.app</td></tr>
+<tr><td>Traslados (transferAPIURL)</td><td>https://mcs-interoperabilidad-679270359263.us-east1.run.app/api/transferCitizen</td></tr>
+<tr><td>Mailpit</td><td><code>terraform output mailpit</code> (IP efímera de la VM)</td></tr>
+<tr><td>Guía con capturas</td><td>https://claude.ai/artifact/KvS5LjWqGThgVKjwRgGjh3</td></tr></table>
 
 <h2>Costo</h2>
-<p>Estimado con precios de lista: unos 3 USD al día (Cloud Run 1,6; VM 0,6; Cloud SQL 0,4; resto menor). El costo medido queda pendiente: la facturación de GCP tarda unas 24 h en reflejarse. El despliegue sigue encendido.</p>
+<p>Estimado con precios de lista: unos 3 USD al día (Cloud Run 1,6; VM 0,6; Cloud SQL 0,4; resto menor). La universidad simulada escala a cero y Mailpit comparte la VM. El costo medido queda pendiente: la facturación de GCP tarda unas 24 h en reflejarse. El despliegue sigue encendido.</p>
 </body></html>
