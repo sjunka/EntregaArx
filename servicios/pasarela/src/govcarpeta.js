@@ -26,11 +26,12 @@ export function crearBreaker({ umbral = 5, enfriamientoMs = 30_000, ahora = Date
   }
 }
 
-// validateCitizen responde 200 con prosa que nombra al operador, o 204 si está libre.
+// validateCitizen responde 200 con prosa que nombra al operador, o 204 si está libre. El real la manda como cadena
+// JSON entre comillas y con «operador:»; el doble, sin comillas ni dos puntos.
 export function leerAfiliacion(status, texto) {
   if (status === 204) return { afiliado: false, operador: null }
   if (status === 200) {
-    const m = /operador\s+(.+?)[\s.]*$/i.exec((texto || '').trim())
+    const m = /operador:?\s+(.+?)[\s."]*$/i.exec((texto || '').trim())
     return { afiliado: true, operador: m ? m[1].trim() : null }
   }
   throw new Indisponible(`validateCitizen respondió ${status}`)

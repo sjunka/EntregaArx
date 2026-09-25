@@ -7,6 +7,9 @@ test('204 significa libre; 200 extrae el operador aunque haya espacio final', ()
   assert.deepEqual(leerAfiliacion(204, ''), { afiliado: false, operador: null })
   const r = leerAfiliacion(200, 'El ciudadano 99123 ya se encuentra registrado en el operador Operador 123 ')
   assert.deepEqual(r, { afiliado: true, operador: 'Operador 123' })
+  // Texto literal del GovCarpeta real (24 sep 2026): cadena JSON entre comillas y «operador:» con dos puntos.
+  const real = leerAfiliacion(200, '"El ciudadano con id: 9990097549 se encuentra registrado en el operador: Mi Carpeta Segura "')
+  assert.deepEqual(real, { afiliado: true, operador: 'Mi Carpeta Segura' })
   assert.throws(() => leerAfiliacion(500, ''), Indisponible)
 })
 
