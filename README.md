@@ -4,12 +4,18 @@ Operador de Carpeta Ciudadana (curso Arquitecturas Avanzadas de Software). Glosa
 
 ## Arranque local
 
-Requiere Docker y Node 22.
+Requiere Docker Desktop y Node 22. La primera vez tarda porque construye las imágenes.
 
 ```sh
-cp .env.example .env          # y cambia las claves
-docker compose up -d --build
+npm run local           # crea .env con claves aleatorias si falta, levanta todo y espera a que esté sano
+npm run local:parar     # detiene los contenedores
+npm run local:limpiar   # borra contenedores y volúmenes (se pierden los datos)
+npm run local:e2e       # pruebas e2e contra el stack local
 ```
+
+Al terminar, `npm run local` imprime la URL de la app, la de Mailpit y la cuenta demo con su clave. Equivale a `cp .env.example .env` más `docker compose up -d --build --wait`.
+
+El demo completo en local sigue los mismos pasos que en GCP, con las 13 historias (incluido HU-13 contra el Operador Destino simulado). La guía está en https://claude.ai/artifact/KvS5LjWqGThgVKjwRgGjh3#local (pestaña Demo, botón **En local**). Cambian las URL: universidad simulada en `http://localhost:8088` (sin `x-demo-clave`) y traslado de entrada con `curl -X POST localhost:8094/trasladar -H 'content-type: application/json' -d '{"cedula":"<nueva>"}'`.
 
 | Servicio | URL |
 |---|---|
