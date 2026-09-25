@@ -1,0 +1,402 @@
+{
+ "schema_version": 1,
+ "diagram_type": "architecture",
+ "meta": {
+  "title": "Mi Carpeta Segura en GCP (us-east1)",
+  "quality_profile": "showcase"
+ },
+ "components": [
+  {
+   "id": "identidad",
+   "type": "security",
+   "label": "Keycloak",
+   "sublabel": "Cloud Run",
+   "pos": [
+    40,
+    80
+   ],
+   "size": [
+    170,
+    64
+   ]
+  },
+  {
+   "id": "afiliacion",
+   "type": "backend",
+   "label": "MS-03 Afiliación",
+   "sublabel": "Cloud Run",
+   "pos": [
+    360,
+    80
+   ],
+   "size": [
+    170,
+    64
+   ]
+  },
+  {
+   "id": "pasarela",
+   "type": "backend",
+   "label": "MS-08 Pasarela",
+   "sublabel": "Cloud Run",
+   "pos": [
+    620,
+    80
+   ],
+   "size": [
+    170,
+    64
+   ]
+  },
+  {
+   "id": "govcarpeta",
+   "type": "external",
+   "label": "GovCarpeta real",
+   "sublabel": "escritura activa (ADR-0025)",
+   "pos": [
+    880,
+    80
+   ],
+   "size": [
+    170,
+    64
+   ]
+  },
+  {
+   "id": "operadores",
+   "type": "external",
+   "label": "Otros operadores",
+   "sublabel": "traslados HU-13",
+   "pos": [
+    1140,
+    80
+   ],
+   "size": [
+    190,
+    64
+   ]
+  },
+  {
+   "id": "spa",
+   "type": "frontend",
+   "label": "SPA React",
+   "sublabel": "GitHub Pages",
+   "pos": [
+    40,
+    240
+   ],
+   "size": [
+    170,
+    64
+   ]
+  },
+  {
+   "id": "custodia",
+   "type": "backend",
+   "label": "MS-04 Custodia",
+   "sublabel": "Cloud Run",
+   "pos": [
+    360,
+    240
+   ],
+   "size": [
+    170,
+    64
+   ]
+  },
+  {
+   "id": "autorizaciones",
+   "type": "security",
+   "label": "MS-06 Autorizaciones",
+   "sublabel": "Cloud Run",
+   "pos": [
+    620,
+    240
+   ],
+   "size": [
+    170,
+    64
+   ]
+  },
+  {
+   "id": "premium",
+   "type": "backend",
+   "label": "MS-11 Premium",
+   "sublabel": "Cloud Run",
+   "pos": [
+    880,
+    240
+   ],
+   "size": [
+    170,
+    64
+   ]
+  },
+  {
+   "id": "minio",
+   "type": "database",
+   "label": "Cloud Storage",
+   "sublabel": "buckets documentos",
+   "pos": [
+    40,
+    400
+   ],
+   "size": [
+    170,
+    64
+   ]
+  },
+  {
+   "id": "interop",
+   "type": "backend",
+   "label": "MS-07 Interoperabilidad",
+   "sublabel": "Cloud Run",
+   "pos": [
+    620,
+    400
+   ],
+   "size": [
+    190,
+    64
+   ]
+  },
+  {
+   "id": "entidad",
+   "type": "external",
+   "label": "Entidad emisora",
+   "sublabel": "Cloud Run (ADR-0026)",
+   "pos": [
+    900,
+    400
+   ],
+   "size": [
+    170,
+    64
+   ]
+  },
+  {
+   "id": "postgres",
+   "type": "database",
+   "label": "Cloud SQL Postgres",
+   "sublabel": "db-f1-micro, IP privada",
+   "pos": [
+    1140,
+    400
+   ],
+   "size": [
+    190,
+    64
+   ],
+   "tag": "RD-11"
+  },
+  {
+   "id": "kafka",
+   "type": "messagebus",
+   "label": "Kafka + Schema Registry",
+   "sublabel": "VM e2-small",
+   "pos": [
+    370,
+    560
+   ],
+   "size": [
+    190,
+    64
+   ]
+  },
+  {
+   "id": "consumidores",
+   "type": "backend",
+   "label": "Consumidores",
+   "sublabel": "MS-02/05/09/10 Cloud Run",
+   "pos": [
+    640,
+    560
+   ],
+   "size": [
+    180,
+    64
+   ]
+  },
+  {
+   "id": "mongo",
+   "type": "database",
+   "label": "MongoDB Atlas M0",
+   "sublabel": "vía Secret Manager",
+   "pos": [
+    900,
+    560
+   ],
+   "size": [
+    170,
+    64
+   ]
+  },
+  {
+   "id": "mailpit",
+   "type": "external",
+   "label": "Mailpit",
+   "sublabel": "en la VM de Kafka",
+   "pos": [
+    640,
+    720
+   ],
+   "size": [
+    180,
+    64
+   ]
+  }
+ ],
+ "connections": [
+  {
+   "id": "login",
+   "from": "spa",
+   "to": "identidad",
+   "label": "OIDC",
+   "variant": "security"
+  },
+  {
+   "id": "spa-afiliacion",
+   "from": "spa",
+   "to": "afiliacion",
+   "label": "registro"
+  },
+  {
+   "id": "spa-custodia",
+   "from": "spa",
+   "to": "custodia",
+   "label": "REST + JWT",
+   "variant": "emphasis",
+   "labelAt": [
+    300,
+    318
+   ]
+  },
+  {
+   "id": "binarios",
+   "from": "spa",
+   "to": "minio",
+   "label": "URL prefirmada",
+   "variant": "dashed",
+   "labelAt": [
+    125,
+    352
+   ]
+  },
+  {
+   "id": "afil-pasarela",
+   "from": "afiliacion",
+   "to": "pasarela"
+  },
+  {
+   "id": "pasarela-gov",
+   "from": "pasarela",
+   "to": "govcarpeta",
+   "label": "metadatos"
+  },
+  {
+   "id": "oper-gov",
+   "from": "operadores",
+   "to": "govcarpeta",
+   "label": "traslados"
+  },
+  {
+   "id": "cust-pasarela",
+   "from": "custodia",
+   "to": "pasarela",
+   "fromSide": "top",
+   "toSide": "left"
+  },
+  {
+   "id": "cust-autz",
+   "from": "custodia",
+   "to": "autorizaciones",
+   "label": "decide",
+   "variant": "security"
+  },
+  {
+   "id": "prem-autz",
+   "from": "premium",
+   "to": "autorizaciones"
+  },
+  {
+   "id": "cust-minio",
+   "from": "custodia",
+   "to": "minio",
+   "label": "firma",
+   "fromSide": "bottom",
+   "toSide": "right"
+  },
+  {
+   "id": "interop-cust",
+   "from": "interop",
+   "to": "custodia"
+  },
+  {
+   "id": "entidad-interop",
+   "from": "entidad",
+   "to": "interop",
+   "label": "emite"
+  },
+  {
+   "id": "cust-kafka",
+   "from": "custodia",
+   "to": "kafka",
+   "label": "eventos",
+   "variant": "dashed",
+   "fromSide": "bottom",
+   "toSide": "top",
+   "labelAt": [
+    500,
+    520
+   ]
+  },
+  {
+   "id": "kafka-cons",
+   "from": "kafka",
+   "to": "consumidores"
+  },
+  {
+   "id": "cons-mongo",
+   "from": "consumidores",
+   "to": "mongo"
+  },
+  {
+   "id": "cons-mail",
+   "from": "consumidores",
+   "to": "mailpit",
+   "label": "SMTP",
+   "labelAt": [
+    760,
+    672
+   ]
+  }
+ ],
+ "cards": [
+  {
+   "dot": "cyan",
+   "title": "Despliegue",
+   "items": [
+    "infra/gcp/desplegar.sh + Terraform",
+    "Imágenes en Artifact Registry",
+    "Jobs Cloud Run: migrar-* y esquemas"
+   ]
+  },
+  {
+   "dot": "emerald",
+   "title": "Reglas",
+   "items": [
+    "Binarios solo por URL prefirmada (RI-06)",
+    "MS-06 decide antes de firmar (RI-08)",
+    "Secretos en Secret Manager"
+   ]
+  },
+  {
+   "dot": "rose",
+   "title": "Costo",
+   "items": [
+    "Consumidores con CPU siempre asignada",
+    "Presupuesto con alertas 50/90/100 %"
+   ]
+  }
+ ]
+}

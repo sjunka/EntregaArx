@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Arquitectura Mi Carpeta Segura</title>
+<style>
+  body{margin:0;font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;flex-direction:column;height:100vh}
+  nav{display:flex;gap:8px;padding:10px 16px}
+  button{font:inherit;padding:6px 14px;border-radius:6px;border:1px solid #334155;background:#1e293b;color:inherit;cursor:pointer}
+  button[aria-selected=true]{background:#2563eb;border-color:#2563eb}
+  iframe{flex:1;border:0;width:100%}
+</style>
+</head>
+<body>
+<nav role="tablist">
+  <button role="tab" aria-selected="true" data-src="local.html">Local (Docker Compose)</button>
+  <button role="tab" aria-selected="false" data-src="gcp.html">GCP</button>
+</nav>
+<iframe id="vista" src="local.html" title="Diagrama de arquitectura"></iframe>
+<script>
+  document.querySelectorAll('[role=tab]').forEach(b => b.onclick = () => {
+    document.querySelectorAll('[role=tab]').forEach(x => x.setAttribute('aria-selected', x === b));
+    document.getElementById('vista').src = b.dataset.src;
+  });
+</script>
+</body>
+</html>
