@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { isIP } from 'node:net'
-import { CompactSign, SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose'
+import { SignJWT, createLocalJWKSet, exportJWK, generateKeyPair } from 'jose'
 import { crearApp } from '../src/app.js'
 import { crearVerificador } from '../src/auth.js'
 import { crearVerificadorFirmas } from '../src/firma.js'
@@ -10,28 +10,21 @@ import { crearProcesador, MAX_INTENTOS_DOCUMENTO, rutasTraslados } from '../src/
 import { ErrorAfiliacion } from '../src/afiliacion.js'
 import { ErrorCustodia } from '../src/custodia.js'
 
-// HU-09 · Traslado de entrada: MS-07 recibe transferCitizen, orquesta la descarga de cada documento (idempotente y con
-// reintento), registra la afiliación solo con la Carpeta completa y confirma al origen. RF-01.8, RF-03.3, RF-03.5, RF-03.8, RI-03, RNF-22.
+// HU-09 · Traslado de entrada: MS-07 recibe transferCitizen en el formato del curso (ADR-0027), orquesta la descarga de cada
+// documento (idempotente y con reintento), registra la afiliación solo con la Carpeta completa y la cuenta activada, y confirma
+// al origen. RF-01.8, RF-03.3, RF-03.5, RF-03.8, RI-03, RNF-22.
 const OPERADOR = 'Mi Carpeta Segura'
 const EMISOR = 'http://localhost:8081/realms/carpeta'
 const SPA = 'http://localhost:4173'
 const { privateKey, publicKey } = await generateKeyPair('RS256')
-const intruso = await generateKeyPair('RS256')
 const jwks = createLocalJWKSet({ keys: [{ ...(await exportJWK(publicKey)), kid: 'k1', alg: 'RS256' }] })
-const firmar = (claims, llave = privateKey) => new CompactSign(new TextEncoder().encode(JSON.stringify(claims))).setProtectedHeader({ alg: 'RS256', kid: 'k1' }).sign(llave)
 const tokenCiudadano = (cedula = '1012345678') => new SignJWT({ azp: 'portal', cedula }).setProtectedHeader({ alg: 'RS256', kid: 'k1' }).setIssuer(EMISOR).setAudience('interoperabilidad').setIssuedAt().setExpirationTime('5m').sign(privateKey)
 
-const sha = (n) => String(n).repeat(64).slice(0, 64)
-const DOCS = [
-  { idExterno: 'a1', titulo: 'Cédula', clase: 'temporal', tipo: 'application/pdf', tamano: 100, sha256: sha(1), url: 'https://origen.test/d/a1?firma=1' },
-  { idExterno: 'a2', titulo: 'Diploma', clase: 'certificado', emisor: 'universidad-original', tipo: 'application/pdf', tamano: 200, sha256: sha(2), url: 'https://origen.test/d/a2?firma=1' },
-  { idExterno: 'a3', titulo: 'Recibo', clase: 'temporal', tipo: 'image/png', tamano: 300, sha256: sha(3), url: 'https://origen.test/d/a3?firma=1' },
-]
-const TRASLADO = {
-  operador: 'operador-origen', id: '1012345678', nombre: 'Ana', apellido: 'Gil', direccion: 'Calle 10 # 20-30, Bogotá', correo: 'ana.gil.45678@carpetacolombia.co',
-  correoContacto: 'ana@correo.co', telefono: '3001234567', confirmAPI: 'https://origen.test/api/transferCitizenConfirm', documentos: DOCS,
-}
-const firmaDe = (t = TRASLADO, llave) => firmar({ iss: t.operador, id: t.id, confirmAPI: t.confirmAPI, sha256: t.documentos.map((d) => d.sha256) }, llave)
+// Formato del curso: título => [URL]. El id de cada documento en el origen se deriva del título y su posición.
+const URLS = { 'Cédula': ['https://origen.test/d/a1?firma=1'], 'Diploma': ['https://origen.test/d/a2?firma=1'], 'Recibo': ['https://origen.test/d/a3?firma=1'] }
+const TRASLADO = { id: 1012345678, citizenName: 'Ana María Gil', citizenEmail: 'ana.gil@origen.test', urlDocuments: URLS, confirmAPI: 'https://origen.test/api/transferCitizenConfirm' }
+const ORIGEN = 'origen.test' // el operador de origen se identifica por el host de confirmAPI
+const [A1, A2, A3] = ['Cédula#0', 'Diploma#0', 'Recibo#0']
 
 // Doble en memoria del repositorio Postgres (src/traslados.js), con el mismo contrato y un reloj que la prueba controla.
 function repoEnMemoria(reloj) {
@@ -69,7 +62,7 @@ function repoEnMemoria(reloj) {
 
 function montar({ centralizador = { afiliado: false, operador: null } } = {}) {
   const reloj = { ahora: new Date('2026-09-24T10:00:00Z') }
-  const f = { reloj, repo: repoEnMemoria(reloj), orden: [], recibidos: [], confirmaciones: [], descartes: [], cancelaciones: [], iniciados: [], enlaces: new Map(), fallas: new Map(), confirmarFalla: 0, completarFalla: [] }
+  const f = { reloj, repo: repoEnMemoria(reloj), orden: [], recibidos: [], confirmaciones: [], descartes: [], cancelaciones: [], iniciados: [], correos: [], enlaces: new Map(), fallas: new Map(), confirmarFalla: 0, completarFalla: [] }
   f.pasarela = { consultar: async () => { if (centralizador instanceof Error) throw centralizador; return centralizador } }
   f.afiliacion = {
     // Idempotente por cédula, como MS-03: devuelve el mismo enlace.
@@ -89,8 +82,9 @@ function montar({ centralizador = { afiliado: false, operador: null } } = {}) {
   }
   f.confirmar = async (url, cuerpo) => { f.orden.push(`confirmar:${cuerpo.req_status}`); if (f.confirmarFalla-- > 0) throw new Error('el origen no responde'); f.confirmaciones.push({ url, ...cuerpo }) }
   f.procesador = crearProcesador({ repo: f.repo, custodia: f.custodia, afiliacion: f.afiliacion, confirmar: f.confirmar, ahora: () => reloj.ahora })
+  f.correo = { enviar: async (c) => { f.correos.push(c) } }
   const traslados = rutasTraslados({
-    firmas: crearVerificadorFirmas({ emisores: new Map([['operador-origen', jwks]]) }), pasarela: f.pasarela, afiliacion: f.afiliacion, repo: f.repo,
+    pasarela: f.pasarela, afiliacion: f.afiliacion, repo: f.repo, correo: f.correo,
     verificar: crearVerificador({ issuer: EMISOR, jwks }), spaUrl: SPA, operador: OPERADOR, hostsInternos: [],
     resolver: async (host) => [{ address: isIP(host) ? host : '93.184.216.34' }], // los nombres de prueba resuelven a una dirección pública
   })
@@ -109,25 +103,31 @@ async function con(f, prueba) {
   }
   try { await prueba(pedir) } finally { srv.close() }
 }
-const transferir = async (pedir, cambio = {}) => {
-  const t = { ...TRASLADO, ...cambio }
-  return pedir('/api/transferCitizen', { metodo: 'POST', cuerpo: { ...t, firma: cambio.firma ?? await firmaDe(t) } })
-}
+const transferir = (pedir, cambio = {}) => pedir('/api/transferCitizen', { metodo: 'POST', cuerpo: { ...TRASLADO, ...cambio } })
 
-test('recibe el traslado firmado: crea la cuenta por MS-03, deja el traslado en curso y devuelve el enlace de activación', async () => {
+test('recibe el traslado del curso: crea la cuenta por MS-03, le envía el enlace de activación por correo y deja el traslado en curso', async () => {
   const f = montar()
   await con(f, async (pedir) => {
     const r = await transferir(pedir)
     assert.equal(r.status, 202)
     assert.equal(r.cuerpo.estado, 'en-curso')
     assert.equal(r.cuerpo.total, 3)
+    assert.equal(r.cuerpo.operador, ORIGEN)
     assert.match(r.cuerpo.activacion, new RegExp(`^${SPA}/#activar/[0-9a-f-]{36}\\.m{32}$`))
-    assert.deepEqual(f.iniciados, [{
-      cedula: '1012345678', nombre: 'Ana', apellido: 'Gil', direccion: 'Calle 10 # 20-30, Bogotá', cuenta: 'ana.gil.45678@carpetacolombia.co',
-      correoContacto: 'ana@correo.co', telefono: '3001234567',
-    }])
+    assert.deepEqual(f.iniciados, [{ cedula: '1012345678', nombre: 'Ana', apellido: 'María Gil', cuenta: 'ana.gil@origen.test', correoContacto: 'ana.gil@origen.test' }])
+    assert.equal(f.correos.length, 1)
+    assert.equal(f.correos[0].destino, 'ana.gil@origen.test')
+    assert.ok(f.correos[0].texto.includes(r.cuerpo.activacion), 'el correo lleva el enlace')
     assert.equal(f.recibidos.length, 0, 'recibir la solicitud no descarga nada: lo hace el procesador')
     assert.deepEqual(f.orden, [])
+  })
+})
+
+test('un nombre de una sola palabra y un id como texto también sirven', async () => {
+  const f = montar()
+  await con(f, async (pedir) => {
+    assert.equal((await transferir(pedir, { id: '1012345678', citizenName: 'Ana' })).status, 202)
+    assert.deepEqual([f.iniciados[0].nombre, f.iniciados[0].apellido], ['Ana', undefined])
   })
 })
 
@@ -141,28 +141,27 @@ test('reenvío idempotente: 200 con el mismo traslado, sin crear otra cuenta ni 
     assert.equal(b.cuerpo.activacion, a.cuerpo.activacion, 'el mismo enlace: MS-03 no crea otra cuenta')
     assert.equal(f.repo.filas.size, 1)
     assert.equal(f.enlaces.size, 1)
+    assert.equal(f.correos.length, 1, 'el reenvío no manda otro correo')
   })
 })
 
 for (const [caso, cambio] of [
-  ['sin documentos', { documentos: [] }],
-  ['más de 50 documentos', { documentos: Array.from({ length: 51 }, (_, i) => ({ ...DOCS[0], idExterno: `d${i}` })) }],
-  ['idExterno repetido', { documentos: [DOCS[0], { ...DOCS[1], idExterno: 'a1' }] }],
-  ['Certificado sin emisor', { documentos: [{ ...DOCS[1], emisor: undefined }] }],
-  ['tipo no permitido', { documentos: [{ ...DOCS[0], tipo: 'application/zip' }] }],
-  ['huella inválida', { documentos: [{ ...DOCS[0], sha256: 'zz' }] }],
-  ['URL de documento inválida', { documentos: [{ ...DOCS[0], url: 'no-es-url' }] }],
-  ['sin teléfono', { telefono: undefined }],
-  ['teléfono no celular', { telefono: '6011234567' }],
-  ['sin correo institucional', { correo: 'no-es-correo' }],
-  ['sin dirección', { direccion: '' }],
+  ['sin documentos', { urlDocuments: {} }],
+  ['más de 50 URL', { urlDocuments: { Muchos: Array.from({ length: 51 }, (_, n) => `https://origen.test/d/${n}`) } }],
+  ['un título sin URL', { urlDocuments: { 'Cédula': [] } }],
+  ['URL que no es lista', { urlDocuments: { 'Cédula': 'https://origen.test/d/a1' } }],
+  ['URL de documento inválida', { urlDocuments: { 'Cédula': ['no-es-url'] } }],
+  ['URL de documento http', { urlDocuments: { 'Cédula': ['http://origen.test/d/a1'] } }],
+  ['URL de documento en la red interna', { urlDocuments: { 'Cédula': ['https://10.0.0.5/d/a1'] } }],
+  ['sin correo', { citizenEmail: 'no-es-correo' }],
+  ['sin nombre', { citizenName: ' ' }],
   ['cédula inválida', { id: '12a' }],
   ['sin confirmAPI', { confirmAPI: undefined }],
 ]) {
   test(`traslado inválido (${caso}): 422 en problem+json y sin crear nada`, async () => {
     const f = montar()
     await con(f, async (pedir) => {
-      const r = await transferir(pedir, { ...cambio, firma: 'x.y.z' })
+      const r = await transferir(pedir, cambio)
       assert.equal(r.status, 422)
       assert.match(r.tipo, /problem\+json/)
     })
@@ -171,27 +170,11 @@ for (const [caso, cambio] of [
   })
 }
 
-test('operador sin llave registrada: 403; firma que no cubre los documentos o el confirmAPI: 401', async () => {
-  const f = montar()
-  await con(f, async (pedir) => {
-    assert.equal((await transferir(pedir, { operador: 'operador-desconocido' })).status, 403)
-    assert.equal((await transferir(pedir, { firma: await firmaDe(TRASLADO, intruso.privateKey) })).status, 401)
-    const otroDoc = { ...TRASLADO, documentos: [DOCS[0], DOCS[1], { ...DOCS[2], sha256: sha(9) }] }
-    const alterado = await transferir(pedir, { firma: await firmaDe(TRASLADO), documentos: otroDoc.documentos })
-    assert.equal(alterado.status, 401)
-    assert.match(alterado.cuerpo.detail, /sha256/)
-    assert.equal((await transferir(pedir, { firma: await firmaDe({ ...TRASLADO, confirmAPI: 'https://otro.test/confirm' }) })).status, 401, 'el confirmAPI también va firmado')
-  })
-  assert.equal(f.iniciados.length, 0)
-})
-
 test('el confirmAPI no puede apuntar a la red interna ni a http', async () => {
   const f = montar()
   await con(f, async (pedir) => {
     for (const confirmAPI of ['http://origen.test/confirm', 'https://127.0.0.1/confirm', 'https://10.0.0.5/confirm', 'https://169.254.169.254/latest']) {
-      const t = { ...TRASLADO, confirmAPI }
-      const r = await pedir('/api/transferCitizen', { metodo: 'POST', cuerpo: { ...t, firma: await firmaDe(t) } })
-      assert.equal(r.status, 422, confirmAPI)
+      assert.equal((await transferir(pedir, { confirmAPI })).status, 422, confirmAPI)
     }
   })
   assert.equal(f.iniciados.length, 0)
@@ -227,7 +210,7 @@ test('el ciudadano ve el avance de su traslado y nadie más lo ve', async () => 
     await transferir(pedir)
     const antes = await pedir('/traslados/actual', { t: await tokenCiudadano() })
     assert.equal(antes.status, 200)
-    assert.deepEqual([antes.cuerpo.estado, antes.cuerpo.recibidos, antes.cuerpo.total, antes.cuerpo.operador], ['en-curso', 0, 3, 'operador-origen'])
+    assert.deepEqual([antes.cuerpo.estado, antes.cuerpo.recibidos, antes.cuerpo.total, antes.cuerpo.operador], ['en-curso', 0, 3, ORIGEN])
     await f.avanzar()
     const despues = await pedir('/traslados/actual', { t: await tokenCiudadano() })
     assert.deepEqual([despues.cuerpo.estado, despues.cuerpo.recibidos, despues.cuerpo.total], ['completo', 3, 3])
@@ -242,11 +225,11 @@ test('procesar: recibe cada documento, registra la afiliación solo cuando todos
   await con(f, async (pedir) => {
     await transferir(pedir)
     await f.avanzar()
-    assert.deepEqual(f.orden, ['recibir:a1', 'recibir:a2', 'recibir:a3', 'completar', 'confirmar:1'], 'la afiliación cambia después del último documento')
-    assert.deepEqual(f.recibidos.map((d) => [d.idExterno, d.clase, d.emisor, d.cedula, d.operador]), [
-      ['a1', 'temporal', undefined, '1012345678', 'operador-origen'], ['a2', 'certificado', 'universidad-original', '1012345678', 'operador-origen'], ['a3', 'temporal', undefined, '1012345678', 'operador-origen'],
+    assert.deepEqual(f.orden, [`recibir:${A1}`, `recibir:${A2}`, `recibir:${A3}`, 'completar', 'confirmar:1'], 'la afiliación cambia después del último documento')
+    assert.deepEqual(f.recibidos.map((d) => [d.idExterno, d.titulo, d.clase, d.cedula, d.operador]), [
+      [A1, 'Cédula', 'temporal', '1012345678', ORIGEN], [A2, 'Diploma', 'temporal', '1012345678', ORIGEN], [A3, 'Recibo', 'temporal', '1012345678', ORIGEN],
     ])
-    assert.equal(f.recibidos[0].url, DOCS[0].url)
+    assert.equal(f.recibidos[0].url, URLS['Cédula'][0])
     assert.deepEqual(f.confirmaciones, [{ url: TRASLADO.confirmAPI, id: '1012345678', req_status: 1 }])
     assert.equal([...f.repo.filas.values()][0].confirmadoEn !== null, true)
     await f.avanzar(60_000)
@@ -256,11 +239,11 @@ test('procesar: recibe cada documento, registra la afiliación solo cuando todos
 
 test('un documento que falla se reintenta sin repetir los que ya llegaron ni duplicar; la afiliación espera', async () => {
   const f = montar()
-  f.fallas.set('a2', 2)
+  f.fallas.set(A2, 2)
   await con(f, async (pedir) => {
     await transferir(pedir)
     await f.avanzar()
-    assert.deepEqual(f.orden, ['recibir:a1', 'recibir:a2', 'recibir:a3'], 'a2 falló; a3 sí llegó; nada de afiliación todavía')
+    assert.deepEqual(f.orden, [`recibir:${A1}`, `recibir:${A2}`, `recibir:${A3}`], 'el Diploma falló; el Recibo sí llegó; nada de afiliación todavía')
     assert.equal([...f.repo.filas.values()][0].recibidos, 2)
     await f.avanzar(1000)
     assert.equal(f.recibidos.length, 3, 'todavía no toca reintentar: espera con retroceso')
@@ -268,7 +251,7 @@ test('un documento que falla se reintenta sin repetir los que ya llegaron ni dup
     assert.equal([...f.repo.filas.values()][0].estado, 'en-curso')
     await f.avanzar(60_000)
     const veces = (id) => f.recibidos.filter((d) => d.idExterno === id).length
-    assert.deepEqual([veces('a1'), veces('a2'), veces('a3')], [1, 3, 1])
+    assert.deepEqual([veces(A1), veces(A2), veces(A3)], [1, 3, 1])
     assert.deepEqual(f.orden.slice(-2), ['completar', 'confirmar:1'])
     assert.equal(f.confirmaciones.length, 1)
   })
@@ -276,7 +259,7 @@ test('un documento que falla se reintenta sin repetir los que ya llegaron ni dup
 
 test(`tras ${MAX_INTENTOS_DOCUMENTO} intentos fallidos el traslado se descarta: se borra lo recibido, se cancela la cuenta y el origen recibe req_status 0`, async () => {
   const f = montar()
-  f.fallas.set('a2', 99)
+  f.fallas.set(A2, 99)
   await con(f, async (pedir) => {
     await transferir(pedir)
     for (let i = 0; i < MAX_INTENTOS_DOCUMENTO; i++) await f.avanzar(120_000)
@@ -284,7 +267,7 @@ test(`tras ${MAX_INTENTOS_DOCUMENTO} intentos fallidos el traslado se descarta: 
     assert.equal(t.estado, 'fallido')
     assert.match(t.error, /Diploma/)
     assert.equal(f.orden.includes('completar'), false, 'nunca se registra la afiliación')
-    assert.deepEqual(f.descartes, [{ cedula: '1012345678', operador: 'operador-origen' }])
+    assert.deepEqual(f.descartes, [{ cedula: '1012345678', operador: ORIGEN }])
     assert.deepEqual(f.cancelaciones, ['1012345678'])
     assert.deepEqual(f.confirmaciones, [{ url: TRASLADO.confirmAPI, id: '1012345678', req_status: 0 }])
     assert.ok(t.confirmadoEn)
@@ -315,6 +298,26 @@ test('GovCarpeta rechaza la afiliación (409): fallido y req_status 0; si solo t
   })
 })
 
+test('la afiliación espera a que el ciudadano active su cuenta (425) sin gastar intentos; si la activación vence (410), falla con req_status 0', async () => {
+  const espera = montar()
+  espera.completarFalla.push(...Array.from({ length: 5 }, () => new ErrorAfiliacion(425, 'Falta la activación')))
+  await con(espera, async (pedir) => {
+    await transferir(pedir)
+    await espera.avanzar()
+    for (let i = 0; i < 5; i++) await espera.avanzar(120_000)
+    assert.equal([...espera.repo.filas.values()][0].estado, 'completo', 'cinco esperas no hacen fallar el traslado')
+    assert.deepEqual(espera.confirmaciones.map((c) => c.req_status), [1])
+  })
+  const vencida = montar()
+  vencida.completarFalla.push(new ErrorAfiliacion(410, 'La activación venció'))
+  await con(vencida, async (pedir) => {
+    await transferir(pedir)
+    await vencida.avanzar()
+    assert.equal([...vencida.repo.filas.values()][0].estado, 'fallido')
+    assert.deepEqual(vencida.confirmaciones.map((c) => c.req_status), [0])
+  })
+})
+
 test('si el origen no recibe la confirmación, se reintenta con retroceso sin repetir el resto y sin confirmar dos veces', async () => {
   const f = montar()
   f.confirmarFalla = 2
@@ -333,7 +336,7 @@ test('si el origen no recibe la confirmación, se reintenta con retroceso sin re
 
 test('tras un traslado fallido el origen puede intentarlo de nuevo con un traslado nuevo', async () => {
   const f = montar()
-  f.fallas.set('a1', 99)
+  f.fallas.set(A1, 99)
   await con(f, async (pedir) => {
     await transferir(pedir)
     for (let i = 0; i < MAX_INTENTOS_DOCUMENTO; i++) await f.avanzar(120_000)

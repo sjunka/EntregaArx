@@ -1,9 +1,10 @@
 import { test, expect } from '@playwright/test'
 import { sinViolaciones } from './axe.js'
-import { AFILIACION, CLAVE, NOTIFICACIONES, ORIGEN, GOVCARPETA, cedulaNueva, conToken, tokenDe } from './ciudadano.js'
+import { AFILIACION, CLAVE, MAILPIT, NOTIFICACIONES, ORIGEN, GOVCARPETA, cedulaNueva, conToken, tokenDe } from './ciudadano.js'
 
 // HU-09 · Traslado de entrada. RF-01.8, RF-03.3, RF-03.5, RF-03.8, RI-03, RNF-22.
-// El operador de origen simulado (infra/operador-origen) da de baja al ciudadano en GovCarpeta, firma transferCitizen y sirve los documentos.
+// El operador de origen simulado (infra/operador-origen) da de baja al ciudadano en GovCarpeta, envía transferCitizen en el formato
+// del curso (ADR-0027) y sirve los documentos. El enlace de activación le llega al ciudadano por correo.
 const trasladar = async (request, datos) => (await request.post(`${ORIGEN}/trasladar`, { data: datos, timeout: 60_000 })).json()
 const estadoOrigen = async (request, cedula) => (await request.get(`${ORIGEN}/estado/${cedula}`)).json()
 const CLAVE_NUEVA = 'clave-del-trasladado-2026'
@@ -14,7 +15,7 @@ test('HU-09 · el ciudadano activa su cuenta, ve el avance y GovCarpeta solo cam
   const t = await trasladar(request, {
     cedula, documentos: [
       { titulo: 'Cédula de ciudadanía', demoraMs: 3000 },
-      { titulo: 'Diploma de bachiller', clase: 'certificado', emisor: 'universidad-original', demoraMs: 3000 },
+      { titulo: 'Diploma de bachiller', demoraMs: 3000 },
       { titulo: 'Recibo de servicios', fallas: 1 }, // el origen falla una vez: se reintenta sin duplicar
     ],
   })
@@ -26,7 +27,13 @@ test('HU-09 · el ciudadano activa su cuenta, ve el avance y GovCarpeta solo cam
   // Durante el traslado el ciudadano no está afiliado a ningún operador (RI-03): el origen ya lo dio de baja y aquí aún no lo registran.
   expect((await estadoOrigen(request, cedula)).centralizador.status).toBe(204)
 
-  // Enlace de activación: elige su clave.
+  // El enlace de activación llega al correo del ciudadano.
+  const correos = async () => (await (await request.get(`${MAILPIT}/api/v1/search`, { params: { query: `to:${cuenta}` } })).json()).messages
+  await expect.poll(async () => (await correos()).length, { timeout: 30_000 }).toBe(1)
+  const mensaje = await (await request.get(`${MAILPIT}/api/v1/message/${(await correos())[0].ID}`)).json()
+  expect(mensaje.Text).toContain(t.cuerpo.activacion)
+
+  // Activación: elige su clave y da su dirección y celular, que el formato del curso no trae.
   await page.goto(t.cuerpo.activacion)
   await expect(page.getByRole('heading', { name: 'Activa tu cuenta' })).toBeVisible()
   await sinViolaciones(page, 'activación de la cuenta trasladada')
@@ -39,6 +46,10 @@ test('HU-09 · el ciudadano activa su cuenta, ve el avance y GovCarpeta solo cam
   await page.getByRole('button', { name: 'Activar mi cuenta' }).click()
   await expect(page.getByRole('alert')).toContainText('no coinciden')
   await page.getByLabel('Repite la clave').fill(CLAVE_NUEVA)
+  await page.getByRole('button', { name: 'Activar mi cuenta' }).click()
+  await expect(page.getByRole('alert')).toContainText('dirección de residencia')
+  await page.getByLabel('Dirección de residencia').fill('Calle 10 # 20-30, Bogotá')
+  await page.getByLabel('Teléfono celular').fill('3001234567')
   await page.getByRole('button', { name: 'Activar mi cuenta' }).click()
   await expect(page.getByText('Tu cuenta quedó activa')).toBeVisible()
   await page.getByRole('region', { name: 'Activa tu cuenta' }).getByRole('button', { name: 'Ingresar' }).click()
@@ -59,8 +70,7 @@ test('HU-09 · el ciudadano activa su cuenta, ve el avance y GovCarpeta solo cam
   await expect(page.getByRole('heading', { name: 'Cédula de ciudadanía' })).toBeVisible({ timeout: 20_000 })
   await expect(page.getByRole('heading', { name: 'Diploma de bachiller' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Recibo de servicios' })).toHaveCount(1, { timeout: 20_000 }) // una sola vez pese al fallo
-  await expect(page.getByText('Certificado · Vigente · emitido por universidad-original')).toBeVisible()
-  await expect(page.getByText('Temporal · sin autenticar')).toHaveCount(2)
+  await expect(page.getByText('Temporal · sin autenticar')).toHaveCount(3) // el formato del curso no distingue certificados
   await expect(page.getByTestId('cuota')).toContainText('Te quedan 20 de 20 documentos') // el traslado no consume la cuota
   await sinViolaciones(page, 'carpeta con el traslado completo')
 
@@ -75,7 +85,7 @@ test('HU-09 · el ciudadano activa su cuenta, ve el avance y GovCarpeta solo cam
   await expect.poll(async () => (await request.get(`${NOTIFICACIONES}/preferencias`, { headers: conToken(token) })).status(), { timeout: 30_000 }).toBe(200)
 
   // El enlace de activación sirvió una sola vez.
-  const otra = await request.post(`${AFILIACION}/traslados/activacion`, { data: { token: t.cuerpo.activacion.split('#activar/')[1], clave: 'otra-clave-de-12-o-mas' } })
+  const otra = await request.post(`${AFILIACION}/traslados/activacion`, { data: { token: t.cuerpo.activacion.split('#activar/')[1], clave: 'otra-clave-de-12-o-mas', direccion: 'Calle 1', telefono: '3001234567' } })
   expect(otra.status()).toBe(409)
   expect(otra.headers()['content-type']).toContain('application/problem+json')
 })
@@ -96,15 +106,12 @@ test('HU-09 · alterno: si un documento no llega tras los reintentos el origen r
   expect(activar.status()).toBe(404)
 })
 
-test('HU-09 · el traslado exige firma del operador y que el origen haya dado de baja al ciudadano (nunca dos operadores a la vez)', async ({ request }) => {
-  const invalida = await trasladar(request, { cedula: cedulaNueva(), firmaInvalida: true })
-  expect(invalida.status).toBe(401)
-  expect(invalida.cuerpo.title).toBe('Firma no válida')
+test('HU-09 · el traslado exige que el origen haya dado de baja al ciudadano (nunca dos operadores a la vez) y el formato del curso', async ({ request }) => {
   const sinBaja = await trasladar(request, { cedula: cedulaNueva(), sinBaja: true })
   expect(sinBaja.status).toBe(409)
   expect(sinBaja.cuerpo.title).toBe('Sigue afiliado a otro operador')
   expect(sinBaja.cuerpo.detail).toContain('nunca dos operadores')
-  const alterado = await request.post(`http://localhost:8086/api/transferCitizen`, { data: { operador: 'operador-desconocido' } })
+  const alterado = await request.post(`http://localhost:8086/api/transferCitizen`, { data: { id: 1012345678, citizenName: 'Ana' } })
   expect(alterado.status()).toBe(422)
   expect(alterado.headers()['content-type']).toContain('application/problem+json')
 })

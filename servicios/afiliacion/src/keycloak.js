@@ -31,7 +31,7 @@ export function crearKeycloak({ url, realm, clientId, clientSecret, fetch = glob
     async crearDeshabilitado({ cuenta, nombre, apellido, correoContacto, telefono, cedula, clave }) {
       const r = await llamar('POST', '/users', {
         username: cuenta, email: cuenta, emailVerified: true, firstName: nombre, lastName: apellido,
-        enabled: false, attributes: { cedula: [cedula], correoContacto: [correoContacto], telefono: [telefono] },
+        enabled: false, attributes: { cedula: [cedula], correoContacto: [correoContacto], ...(telefono && { telefono: [telefono] }) },
         credentials: [{ type: 'password', value: clave, temporary: false }],
       })
       if (r.status !== 201) throw new Error(`Keycloak crear usuario ${r.status}: ${await r.text()}`)

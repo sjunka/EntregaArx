@@ -41,10 +41,8 @@ if (process.argv.includes('--migrar')) {
   const token = crearProveedorToken({ url: env.OIDC_INTERNO_URL, clientId: 'interoperabilidad', secreto: env.KC_INTEROP_SECRETO })
   // HU-08: envío a una entidad sin operador. Los enlaces del correo apuntan a este servicio (ENLACES_URL, la URL que ve la entidad).
   const repoEnvios = crearRepoEnvios(db, bandeja)
-  const entregador = crearEntregador({
-    repo: repoEnvios, baseUrl: env.ENLACES_URL, secreto: env.ENLACE_SECRETO,
-    correo: crearCorreo({ url: env.SMTP_URL, remitente: env.CORREO_REMITENTE ?? 'Mi Carpeta Segura <envios@carpetacolombia.co>' }),
-  })
+  const correo = crearCorreo({ url: env.SMTP_URL, remitente: env.CORREO_REMITENTE ?? 'Mi Carpeta Segura <envios@carpetacolombia.co>' })
+  const entregador = crearEntregador({ repo: repoEnvios, baseUrl: env.ENLACES_URL, secreto: env.ENLACE_SECRETO, correo })
   iniciarReintentos({ entregador, log })
   const autorizaciones = crearAutorizaciones({ url: env.AUTORIZACIONES_URL, token })
   const custodia = crearCustodia({ url: env.CUSTODIA_URL, token })
@@ -62,7 +60,7 @@ if (process.argv.includes('--migrar')) {
   const app = crearApp({
     salida: rutasSalida({ repo: repoSalida, pasarela: pasarelaCentralizador, verificar: verificarCiudadano, operador: nombreOperador, secreto: env.ENLACE_SECRETO, hostsInternos }),
     traslados: rutasTraslados({
-      firmas: crearVerificadorFirmas({ emisores }), pasarela: crearPasarela({ url: env.PASARELA_URL }), afiliacion, repo: repoTraslados, hostsInternos,
+      pasarela: crearPasarela({ url: env.PASARELA_URL }), afiliacion, repo: repoTraslados, correo, hostsInternos,
       spaUrl: env.SPA_URL, operador: env.OPERADOR_NOMBRE ?? 'Mi Carpeta Segura',
       verificar: crearVerificador({ issuer: env.OIDC_ISSUER, jwks: createRemoteJWKSet(new URL(env.OIDC_JWKS_URL)) }),
     }),

@@ -312,3 +312,19 @@ test('sin traslado: 404 en /actual; el estado de otro ciudadano no se ve', async
     assert.equal((await pedir('/traslados/salida/actual', { t: await tokenCiudadano('2000000002') })).status, 404)
   })
 })
+
+// ADR-0027: un destino puede confirmar en el endPointConfirm publicado en GovCarpeta, sin el token de nuestro confirmAPI.
+test('confirmación sin token: se busca el traslado por cédula y se aplican las mismas reglas', async () => {
+  const f = montar()
+  await con(f, async (pedir) => {
+    await iniciar(pedir)
+    await f.avanzar()
+    const sinToken = (cuerpo) => pedir('/api/transferCitizenConfirm', { metodo: 'POST', cuerpo, conToken: false })
+    assert.equal((await sinToken({ id: 2000000002, req_status: 1 })).status, 404, 'cédula sin traslado')
+    assert.equal((await sinToken({ id: Number(CEDULA), req_status: 1 })).status, 409, 'GovCarpeta aún no lo muestra en otro operador')
+    f.centralizador = { afiliado: true, operador: 'Operador Destino' }
+    assert.equal((await sinToken({ id: Number(CEDULA), req_status: 1 })).status, 200)
+    await f.avanzar()
+    assert.equal(f.repo.eventos.length, 1, 'se cerró la cuenta como con el token')
+  })
+})

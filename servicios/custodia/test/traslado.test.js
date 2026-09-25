@@ -6,13 +6,13 @@ import { conServicio, repositorioEnMemoria } from './doble.js'
 import { crearDescargador, ErrorOrigen } from '../src/traslado.js'
 
 // HU-09 · Traslado de entrada: MS-04 descarga cada documento de la URL del origen y lo guarda en su almacén.
-// RF-03.3, RF-03.5, RF-03.8, RNF-22 (integridad al finalizar), RI-03.
+// RF-03.3, RF-03.5, RF-03.8, RNF-22, RI-03. El formato del curso no declara tipo, tamaño ni huella: los calcula la custodia (ADR-0027).
 const CEDULA = '1012345678'
 const ORIGEN = 'operador-origen'
 const bytes = (t) => Buffer.from(`%PDF-1.4\n% ${t}\n`)
 const sha = (b) => createHash('sha256').update(b).digest('hex')
 const URL_DOC = (n) => `https://origen.test/documentos/${n}?firma=1`
-const doc = (n, b, extra = {}) => ({ operador: ORIGEN, idExterno: `doc-${n}`, cedula: CEDULA, titulo: `Documento ${n}`, clase: 'temporal', tipo: 'application/pdf', tamano: b.length, sha256: sha(b), url: URL_DOC(n), ...extra })
+const doc = (n, _b, extra = {}) => ({ operador: ORIGEN, idExterno: `doc-${n}`, cedula: CEDULA, titulo: `Documento ${n}`, clase: 'temporal', url: URL_DOC(n), ...extra })
 const recibir = (pedir, cuerpo, servicio = true) => pedir('/interno/traslados/documentos', { metodo: 'POST', cuerpo, servicio })
 
 test('un Temporal llega Cargado, al bucket de Temporales, sin consumir cuota y con su evento hacia el índice', () => {
@@ -81,17 +81,21 @@ test('un fallo de descarga responde 502, no guarda nada y el reintento funciona 
   })
 })
 
-test('integridad (RNF-22): un archivo con otra huella o tamaño que lo declarado se rechaza con 422 y no se guarda', () => {
-  const b = bytes('cédula')
+test('el tipo sale del contenido: PNG y JPG se reconocen y otro formato se rechaza con 422 sin guardar nada', () => {
+  const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from('png')])
+  const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.from('jpg')])
   return conServicio(async ({ pedir, documentos, almacen, descargador }) => {
-    descargador.paginas.set(URL_DOC(1), bytes('alterado'))
-    const distinto = await recibir(pedir, doc(1, b))
-    assert.equal(distinto.status, 422)
-    assert.match(distinto.cuerpo.detail, /no coincide/)
-    descargador.paginas.set(URL_DOC(1), b)
-    assert.equal((await recibir(pedir, doc(1, b, { tamano: b.length + 1 }))).status, 422)
+    descargador.paginas.set(URL_DOC(1), Buffer.from('PK\x03\x04 un zip'))
+    const zip = await recibir(pedir, doc(1))
+    assert.equal(zip.status, 422)
+    assert.match(zip.cuerpo.detail, /PDF, JPG o PNG/)
     assert.equal(almacen.objetos.size, 0)
     assert.equal(documentos.filas.size, 0)
+    descargador.paginas.set(URL_DOC(2), png)
+    descargador.paginas.set(URL_DOC(3), jpg)
+    assert.equal((await recibir(pedir, doc(2))).cuerpo.documento.tipo, 'image/png')
+    assert.equal((await recibir(pedir, doc(3))).cuerpo.documento.tipo, 'image/jpeg')
+    assert.equal(almacen.objetos.get(`${CEDULA}/${[...documentos.filas.keys()][0]}`).sha256, sha(png), 'la huella se calcula aquí')
   })
 })
 
@@ -144,7 +148,7 @@ test('solo la interoperabilidad recibe o descarta traslados y el documento se va
     descargador.paginas.set(URL_DOC(1), b)
     assert.equal((await recibir(pedir, doc(1, b), 'otro-servicio')).status, 403)
     assert.equal((await pedir('/interno/traslados/documentos', { metodo: 'POST', cuerpo: doc(1, b) })).status, 403, 'un ciudadano no')
-    for (const cambio of [{ clase: 'otra' }, { clase: 'certificado' }, { tipo: 'application/zip' }, { tamano: 0 }, { tamano: 10 * 1024 * 1024 + 1 }, { sha256: 'xyz' }, { titulo: '' }, { cedula: 'abc' }, { url: 'no-es-url' }, { idExterno: '' }, { operador: '' }]) {
+    for (const cambio of [{ clase: 'otra' }, { clase: 'certificado' }, { titulo: '' }, { cedula: 'abc' }, { url: 'no-es-url' }, { idExterno: '' }, { operador: '' }]) {
       const r = await recibir(pedir, doc(1, b, cambio))
       assert.equal(r.status, 422, JSON.stringify(cambio))
     }
@@ -166,12 +170,12 @@ test('descargador: solo https salvo hosts internos permitidos, y nunca direccion
   }
 })
 
-test('descargador: baja el archivo de un host interno permitido y respeta el tamaño declarado', async () => {
+test('descargador: baja el archivo de un host interno permitido y respeta el tope de tamaño', async () => {
   await conOrigen((req, res) => { res.writeHead(200, { 'content-type': 'application/pdf' }).end(Buffer.alloc(100, 1)) }, async (base) => {
     const url = `${base}/doc`
     const d = crearDescargador({ hostsInternos: ['127.0.0.1'] })
     assert.equal((await d(url, { tamano: 100 })).length, 100)
-    await assert.rejects(d(url, { tamano: 50 }), (e) => e instanceof ErrorOrigen && !e.politica, 'más grande que lo declarado')
+    await assert.rejects(d(url, { tamano: 50 }), (e) => e instanceof ErrorOrigen && !e.politica, 'más grande que el tope')
   })
 })
 

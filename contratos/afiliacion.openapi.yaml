@@ -43,7 +43,8 @@ paths:
       description: >
         Sin sesión: la credencial es el token del enlace (`{id del traslado}.{HMAC}`), que solo sirve para ese traslado.
         Fija la clave, habilita la cuenta y consume el enlace: usarlo otra vez responde 409. Vence a las 24 horas (410).
-        Un token alterado o ajeno responde 404. La clave lleva entre 12 y 64 caracteres (422).
+        Un token alterado o ajeno responde 404. La clave lleva entre 12 y 64 caracteres (422). El formato de traslado del
+        curso no trae dirección ni celular (ADR-0027): si faltan, son obligatorios aquí (422).
       security: []
       requestBody:
         required: true
@@ -55,6 +56,8 @@ paths:
               properties:
                 token: { type: string }
                 clave: { type: string, minLength: 12, maxLength: 64 }
+                direccion: { type: string, maxLength: 120, description: Obligatoria si el traslado no la trajo }
+                telefono: { type: string, pattern: '^3[0-9]{9}$', description: Obligatorio si el traslado no lo trajo }
       responses:
         '200':
           description: Cuenta activa; el ciudadano ya puede ingresar
@@ -84,15 +87,15 @@ paths:
           application/json:
             schema:
               type: object
-              required: [cedula, nombre, apellido, direccion, cuenta, correoContacto, telefono]
+              required: [cedula, nombre, cuenta, correoContacto]
               properties:
                 cedula: { type: string, pattern: '^[0-9]{6,10}$' }
-                nombre: { type: string }
+                nombre: { type: string, description: Nombre completo si no llega el apellido }
                 apellido: { type: string }
-                direccion: { type: string }
+                direccion: { type: string, description: 'Si falta, el ciudadano la da al activar' }
                 cuenta: { type: string, format: email, description: Cuenta institucional que sobrevive al traslado (RF-01.5) }
                 correoContacto: { type: string, format: email }
-                telefono: { type: string, pattern: '^3[0-9]{9}$' }
+                telefono: { type: string, pattern: '^3[0-9]{9}$', description: 'Si falta, el ciudadano lo da al activar' }
       responses:
         '201':
           description: Cuenta creada
@@ -115,7 +118,7 @@ paths:
       description: >
         Consulta GovCarpeta: si lo tiene otro operador responde 409 y no afilia (RI-03); si ya lo tiene este, no registra
         de nuevo; si está libre lo registra. Después afilia y publica `ciudadano.afiliado` con su contacto. GovCarpeta caído:
-        503 para reintentar; rechazo: 502. Idempotente.
+        503 para reintentar; rechazo: 502. Cuenta sin activar: 425 para reintentar; activación vencida: 410. Idempotente.
       security: [{ servicio: [] }]
       parameters:
         - { name: cedula, in: path, required: true, schema: { type: string } }
@@ -131,6 +134,8 @@ paths:
                   estado: { type: string, const: afiliado }
         '404': { $ref: '#/components/responses/Problema' }
         '409': { $ref: '#/components/responses/Problema' }
+        '410': { $ref: '#/components/responses/Problema' }
+        '425': { $ref: '#/components/responses/Problema' }
         '502': { $ref: '#/components/responses/Problema' }
         '503': { $ref: '#/components/responses/Problema' }
   /interno/traslados/{cedula}/cancelar:

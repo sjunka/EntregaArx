@@ -43,7 +43,7 @@ variable "govcarpeta_url" {
 variable "operador_id" {
   description = "ID de este operador ante GovCarpeta."
   type        = string
-  default     = "mcs-gcp"
+  default     = "6aa8afa3bcc6df0002eb66e5" # id de Mi Carpeta Segura en GovCarpeta (getOperators)
 }
 
 variable "smtp_url" {

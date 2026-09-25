@@ -8,8 +8,6 @@ import { log, problema, sesionCiudadano, texto } from './comun.js'
 export const MAX_DOCUMENTOS = 50
 export const MAX_INTENTOS_DOCUMENTO = 3 // RF-03.5: un documento se reintenta antes de dar el traslado por fallido
 export const MAX_INTENTOS_COMPLETAR = 3
-const MAX_ARCHIVO = 10 * 1024 * 1024
-const TIPOS = ['application/pdf', 'image/jpeg', 'image/png']
 // Retroceso exponencial con tope: 4 s, 8 s… hasta 1 minuto entre documentos; 20 s… hasta 5 minutos para la confirmación.
 export const esperaDocumento = (n) => Math.min(2 ** n * 2, 60) * 1000
 export const esperaConfirmacion = (n) => Math.min(2 ** n * 10, 300) * 1000
@@ -25,7 +23,7 @@ const privada = (ip) => {
   return mapeada ? v4Privada(mapeada[1]) : v6 === '::1' || v6 === '::' || /^f[cd]/.test(v6) || /^fe[89ab]/.test(v6)
 }
 
-// La URL de confirmación la pone el operador de origen (firmada): solo https y nunca la red interna, salvo los hosts
+// La URL de confirmación y las de los documentos las pone el operador de origen: solo https y nunca la red interna, salvo los hosts
 // internos que compose permite. ponytail: copia de la política de la custodia (src/traslado.js); extraer si se necesita una tercera.
 export async function urlPermitida(url, hostsInternos, resolver) {
   let u
@@ -36,29 +34,30 @@ export async function urlPermitida(url, hostsInternos, resolver) {
   try { return (await resolver(host, { all: true })).every((d) => !privada(d.address)) } catch { return false }
 }
 
-export function validarTraslado(t = {}) {
-  if (!texto(t.operador, 80)) return 'Falta el operador de origen.'
-  if (!/^[0-9]{6,10}$/.test(t.id ?? '')) return 'La cédula (id) del ciudadano no es válida.'
-  if (!texto(t.nombre, 60) || !texto(t.apellido, 60)) return 'Faltan el nombre y el apellido del ciudadano.'
-  if (!texto(t.direccion, 120)) return 'Falta la dirección del ciudadano (GovCarpeta la exige al registrarlo).'
-  const correo = (v) => typeof v === 'string' && v.length <= 254 && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)
-  if (!correo(t.correo)) return 'Falta el correo institucional del ciudadano (su cuenta, que sobrevive al traslado).'
-  if (!correo(t.correoContacto)) return 'Falta el correo de contacto del ciudadano.'
-  if (typeof t.telefono !== 'string' || !/^3[0-9]{9}$/.test(t.telefono)) return 'Falta el celular del ciudadano (10 dígitos, empieza por 3).'
-  if (!texto(t.confirmAPI, 500)) return 'Falta el confirmAPI del operador de origen.'
-  if (typeof t.firma !== 'string' || !t.firma) return 'Falta la firma del traslado.'
-  if (!Array.isArray(t.documentos) || !t.documentos.length || t.documentos.length > MAX_DOCUMENTOS) return `El traslado debe traer entre 1 y ${MAX_DOCUMENTOS} documentos.`
-  for (const d of t.documentos) {
-    if (!texto(d?.idExterno, 120) || !texto(d.titulo, 120)) return 'Cada documento necesita su idExterno y su título.'
-    if (!['temporal', 'certificado'].includes(d.clase)) return 'La clase de cada documento debe ser temporal o certificado.'
-    if (d.clase === 'certificado' && !texto(d.emisor, 80)) return 'Un Certificado necesita su entidad emisora.'
-    if (!TIPOS.includes(d.tipo)) return 'Solo se aceptan documentos PDF, JPG o PNG.'
-    if (!Number.isInteger(d.tamano) || d.tamano <= 0 || d.tamano > MAX_ARCHIVO) return 'El tamaño de cada documento debe ser de 1 byte a 10 MB.'
-    if (!/^[0-9a-f]{64}$/.test(d.sha256 ?? '')) return 'El SHA-256 de cada documento no es válido.'
-    if (!texto(d.url, 2000) || !/^https?:\/\//.test(d.url)) return 'La dirección (url) de cada documento no es válida.'
+// Formato del curso (ADR-0027): { id, citizenName, citizenEmail, urlDocuments: { título: [url] }, confirmAPI }. Devuelve el traslado
+// en los términos de aquí o el motivo por el que no sirve. El operador de origen es el host de confirmAPI.
+export function leerTraslado(t = {}) {
+  const cedula = String(t.id ?? '')
+  if (!/^[0-9]{6,10}$/.test(cedula)) return { error: 'La cédula (id) del ciudadano no es válida.' }
+  if (!texto(t.citizenName, 120) || !t.citizenName.trim()) return { error: 'Falta el nombre del ciudadano (citizenName).' }
+  if (typeof t.citizenEmail !== 'string' || t.citizenEmail.length > 254 || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(t.citizenEmail)) return { error: 'Falta el correo del ciudadano (citizenEmail).' }
+  let operador
+  try { operador = new URL(t.confirmAPI).hostname } catch { return { error: 'Falta el confirmAPI del operador de origen.' } }
+  const docs = t.urlDocuments
+  if (!docs || typeof docs !== 'object' || Array.isArray(docs)) return { error: 'Faltan los documentos (urlDocuments).' }
+  const documentos = []
+  for (const [titulo, urls] of Object.entries(docs)) {
+    if (!texto(titulo, 120) || !titulo.trim()) return { error: 'Cada documento necesita un título.' }
+    if (!Array.isArray(urls) || !urls.length) return { error: `«${titulo}» no trae su URL.` }
+    for (const [i, url] of urls.entries()) {
+      if (typeof url !== 'string' || url.length > 2000 || !/^https?:\/\//.test(url)) return { error: `La URL de «${titulo}» no es válida.` }
+      documentos.push({ idExterno: `${titulo.trim()}#${i}`, titulo: titulo.trim(), clase: 'temporal', url })
+    }
   }
-  if (new Set(t.documentos.map((d) => d.idExterno)).size !== t.documentos.length) return 'Los idExterno de los documentos no pueden repetirse.'
-  return null
+  if (!documentos.length || documentos.length > MAX_DOCUMENTOS) return { error: `El traslado debe traer entre 1 y ${MAX_DOCUMENTOS} documentos.` }
+  const [nombre, ...resto] = t.citizenName.trim().split(/\s+/)
+  const correo = t.citizenEmail.trim().toLowerCase()
+  return { cedula, operador, confirmAPI: t.confirmAPI, documentos, cuenta: { cedula, nombre, apellido: resto.join(' ') || undefined, cuenta: correo, correoContacto: correo } }
 }
 
 const aTraslado = (t) => ({
@@ -66,33 +65,33 @@ const aTraslado = (t) => ({
   ...(t.completadoEn && { completadoEn: new Date(t.completadoEn).toISOString() }),
 })
 
-// HU-09 · Traslado de entrada. `peer`: POST /api/transferCitizen, de un operador par (JWS del directorio, como las entidades).
-// `ciudadano`: GET /traslados/actual, el avance que ve el ciudadano. MS-07 no toca el contenido (RI-06): la custodia descarga.
-// dependencias: firmas (conoce, verificarFirma), pasarela (consultar), afiliacion (iniciar), repo, verificar(token) → claims.
-export function rutasTraslados({ firmas, pasarela, afiliacion, repo, verificar, spaUrl, operador, hostsInternos = [], resolver = lookup }) {
+// HU-09 · Traslado de entrada. `peer`: POST /api/transferCitizen, de un operador par en el formato del curso (ADR-0027). No hay
+// firma: la confianza viene de GovCarpeta, que debe mostrar al ciudadano sin operador (RI-03). `ciudadano`: GET /traslados/actual,
+// el avance que ve el ciudadano. MS-07 no toca el contenido (RI-06): la custodia descarga.
+// dependencias: pasarela (consultar), afiliacion (iniciar), repo, correo (enviar), verificar(token) → claims.
+export function rutasTraslados({ pasarela, afiliacion, repo, correo, verificar, spaUrl, operador, hostsInternos = [], resolver = lookup }) {
+  const enlace = (activacion) => `${spaUrl}/#activar/${activacion}`
   const peer = express.Router()
   peer.post('/', async (req, res, next) => {
-    const invalido = validarTraslado(req.body)
-    if (invalido) return problema(res, 422, 'Traslado inválido', invalido)
-    const t = req.body
-    if (!firmas.conoce(t.operador)) return problema(res, 403, 'Operador no registrado', 'Este operador no tiene una llave registrada para el operador de origen.')
+    const t = leerTraslado(req.body)
+    if (t.error) return problema(res, 422, 'Traslado inválido', t.error)
     try {
-      const firma = await firmas.verificarFirma(t.operador, t.firma, { id: t.id, confirmAPI: t.confirmAPI, sha256: t.documentos.map((d) => d.sha256) })
-      if (!firma.valida) return problema(res, 401, 'Firma no válida', firma.motivo)
       if (!(await urlPermitida(t.confirmAPI, hostsInternos, resolver))) return problema(res, 422, 'confirmAPI no permitido', 'El confirmAPI debe ser una dirección https pública.')
+      for (const d of t.documentos) {
+        if (!(await urlPermitida(d.url, hostsInternos, resolver))) return problema(res, 422, 'Dirección de documento no permitida', `La URL de «${d.titulo}» debe ser una dirección https pública.`)
+      }
 
       // Reenvío idempotente: el mismo operador y ciudadano con un traslado activo devuelve ese traslado.
-      const previo = await repo.activoDe(t.operador, t.id)
-      const resumen = async (traslado, status) => {
-        const { activacion } = await afiliacion.iniciar(cuentaDe(t)) // idempotente en MS-03: devuelve el mismo enlace
-        res.status(status).json({ ...aTraslado(traslado), activacion: `${spaUrl}/#activar/${activacion}` })
+      const previo = await repo.activoDe(t.operador, t.cedula)
+      if (previo) {
+        const { activacion } = await afiliacion.iniciar(t.cuenta) // idempotente en MS-03: devuelve el mismo enlace
+        return res.status(200).json({ ...aTraslado(previo), activacion: enlace(activacion) })
       }
-      if (previo) return await resumen(previo, 200)
 
       // RI-03: nunca dos operadores a la vez. El origen ya debió dar de baja al ciudadano en GovCarpeta (secuencia del traslado).
       let afiliacionCentral
       try {
-        afiliacionCentral = await pasarela.consultar(t.id)
+        afiliacionCentral = await pasarela.consultar(t.cedula)
       } catch (err) {
         log('warn', 'centralizador no disponible al recibir un traslado', { detalle: err.message })
         return problema(res, 503, 'Centralizador no disponible', 'No podemos confirmar la afiliación del ciudadano ahora. Reintenta en unos minutos.')
@@ -101,12 +100,15 @@ export function rutasTraslados({ firmas, pasarela, afiliacion, repo, verificar, 
         return problema(res, 409, afiliacionCentral.operador === operador ? 'Ya está afiliado' : 'Sigue afiliado a otro operador',
           afiliacionCentral.operador === operador ? 'El ciudadano ya tiene su carpeta en este operador.' : 'GovCarpeta lo reporta en otro operador: el origen debe darlo de baja antes de trasladar (nunca dos operadores a la vez).')
       }
-      const { activacion } = await afiliacion.iniciar(cuentaDe(t))
-      const { traslado } = await repo.crear({
-        id: randomUUID(), operador: t.operador, cedula: t.id, confirmApi: t.confirmAPI,
-        documentos: t.documentos.map((d) => ({ idExterno: d.idExterno, titulo: d.titulo.trim(), clase: d.clase, emisor: d.emisor, tipo: d.tipo, tamano: d.tamano, sha256: d.sha256, url: d.url })),
-      })
-      res.status(202).json({ ...aTraslado(traslado), activacion: `${spaUrl}/#activar/${activacion}` })
+      const { activacion, venceEn } = await afiliacion.iniciar(t.cuenta)
+      const { traslado } = await repo.crear({ id: randomUUID(), operador: t.operador, cedula: t.cedula, confirmApi: t.confirmAPI, documentos: t.documentos })
+      // El formato del curso no dice cómo llega el enlace al ciudadano: se le envía a su correo. Si el correo falla, el
+      // traslado sigue y el enlace queda en la respuesta al origen. ponytail: sin reintento del correo; agregarlo si se pierden.
+      await correo.enviar({
+        destino: t.cuenta.cuenta, asunto: 'Activa tu cuenta en Mi Carpeta Segura',
+        texto: `Hola, ${t.cuenta.nombre}.\n\nTu operador anterior está trasladando tu carpeta a Mi Carpeta Segura. Para terminar, activa tu cuenta: elige una clave y escribe tu dirección y tu celular en este enlace:\n\n${enlace(activacion)}\n\nEl enlace vence el ${new Date(venceEn).toLocaleString('es-CO', { timeZone: 'America/Bogota' })} (hora de Colombia). Si no esperabas este mensaje, puedes ignorarlo.`,
+      }).catch((e) => log('warn', 'no se pudo enviar el enlace de activación', { detalle: e.message }))
+      res.status(202).json({ ...aTraslado(traslado), activacion: enlace(activacion) })
     } catch (err) {
       if (err instanceof ErrorAfiliacion && [409, 422].includes(err.status)) return problema(res, err.status, 'Cuenta no disponible', err.message)
       next(err)
@@ -123,10 +125,6 @@ export function rutasTraslados({ firmas, pasarela, afiliacion, repo, verificar, 
   })
   return { peer, ciudadano }
 }
-
-const cuentaDe = (t) => ({
-  cedula: t.id, nombre: t.nombre, apellido: t.apellido, direccion: t.direccion, cuenta: t.correo, correoContacto: t.correoContacto, telefono: t.telefono,
-})
 
 // Procesa los traslados en curso: cada documento por la custodia (idempotente), la afiliación solo con la Carpeta completa y la
 // confirmación al origen. Todo el estado está en la base (RD-02); cualquier instancia retoma donde quedó. Un traslado fallido se
@@ -174,6 +172,8 @@ export function crearProcesador({ repo, custodia, afiliacion, confirmar, ahora =
     try {
       await afiliacion.completar(t.cedula)
     } catch (e) {
+      // 425: el ciudadano aún no activa su cuenta (ADR-0027). Se espera sin gastar intentos; MS-03 responde 410 si vence.
+      if (e instanceof ErrorAfiliacion && e.status === 425) return repo.programar(t.id, en(60_000))
       const definitivo = e instanceof ErrorAfiliacion && e.status !== 503
       if (definitivo) return fallar(t, `No pudimos registrar la afiliación: ${e.message}`)
       const intentos = await repo.falloCompletar(t.id, en(esperaDocumento((t.intentosCompletar ?? 0) + 1)))
@@ -250,6 +250,8 @@ export async function migrarTraslados(db) {
     ultimo_error text,
     PRIMARY KEY (traslado_id, id_externo)
   )`)
+  // El formato del curso no declara tipo, tamaño ni huella (ADR-0027): los calcula la custodia al descargar.
+  for (const c of ['tipo', 'tamano', 'sha256']) await db.query(`ALTER TABLE traslado_documentos ALTER COLUMN ${c} DROP NOT NULL`)
 }
 
 export function crearRepoTraslados(db) {
@@ -286,7 +288,7 @@ export function crearRepoTraslados(db) {
     ultimoDe: async (cedula) => (await filas('SELECT * FROM traslados WHERE cedula = $1 ORDER BY creado DESC LIMIT 1', [cedula]))[0] ?? null,
     documentos: async (id) => (await db.query(
       'SELECT id_externo, titulo, clase, emisor, tipo, tamano, sha256, url, estado, intentos FROM traslado_documentos WHERE traslado_id = $1 ORDER BY id_externo', [id])).rows
-      .map((d) => ({ idExterno: d.id_externo, titulo: d.titulo, clase: d.clase, emisor: d.emisor ?? undefined, tipo: d.tipo, tamano: Number(d.tamano), sha256: d.sha256, url: d.url, estado: d.estado, intentos: d.intentos })),
+      .map((d) => ({ idExterno: d.id_externo, titulo: d.titulo, clase: d.clase, emisor: d.emisor ?? undefined, url: d.url, estado: d.estado, intentos: d.intentos })),
     // Toma un traslado cuyo turno llegó y lo arrienda 5 minutos: en curso, o terminado sin confirmar al origen.
     reclamar: async () => (await filas(
       `UPDATE traslados SET siguiente = now() + interval '5 minutes'

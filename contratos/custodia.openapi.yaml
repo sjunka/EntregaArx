@@ -300,8 +300,8 @@ paths:
       summary: Recibe un documento de un Traslado de entrada descargándolo de la URL del origen (HU-09)
       description: >
         Solo la interoperabilidad. La custodia descarga el archivo de `url` (solo https, nunca direcciones privadas, sin
-        redirecciones y con el tamaño declarado como tope), comprueba que tamaño y SHA-256 coinciden con lo declarado
-        (RNF-22, 422 si no) y lo guarda: el Temporal queda Cargado y el Certificado Vigente con su emisor original, en su
+        redirecciones y con 10 MB de tope), calcula su tamaño y SHA-256 y reconoce el tipo por su contenido (PDF, JPG o
+        PNG; otro tipo: 422). El formato de traslado del curso no declara esos datos (ADR-0027). Lo guarda: el Temporal queda Cargado y el Certificado Vigente con su emisor original, en su
         bucket. No consume cuota. Idempotente por (`operador`, `idExterno`): un reintento devuelve el documento que ya existe
         con 200 y no lo descarga otra vez. Fallo del origen: 502 y no se guarda nada; dirección no permitida: 422; almacén
         caído: 503. Publica `documento.cargado`.
@@ -312,7 +312,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [operador, idExterno, cedula, titulo, clase, tipo, tamano, sha256, url]
+              required: [operador, idExterno, cedula, titulo, clase, url]
               properties:
                 operador: { type: string }
                 idExterno: { type: string, description: Identificador del documento en el operador de origen }
@@ -320,9 +320,6 @@ paths:
                 titulo: { type: string, maxLength: 120 }
                 clase: { type: string, enum: [temporal, certificado] }
                 emisor: { type: string, description: Obligatorio en los Certificados }
-                tipo: { type: string, enum: [application/pdf, image/jpeg, image/png] }
-                tamano: { type: integer, minimum: 1, maximum: 10485760 }
-                sha256: { type: string, pattern: '^[0-9a-f]{64}$' }
                 url: { type: string, format: uri, maxLength: 2000 }
       responses:
         '201':

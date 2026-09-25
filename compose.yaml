@@ -342,7 +342,7 @@ services:
       OIDC_INTERNO_URL: http://identidad:8080/realms/carpeta
       KC_INTEROP_SECRETO: ${KC_INTEROP_SECRETO}
       # Directorio de entidades emisoras y su llave pública (id=urlJWKS;id=urlJWKS).
-      EMISORES: universidad-demo=http://entidad:8080/.well-known/jwks.json;operador-origen=http://operador-origen:8080/.well-known/jwks.json
+      EMISORES: universidad-demo=http://entidad:8080/.well-known/jwks.json
       # HU-08: correo a la entidad sin operador con enlaces que apuntan aquí (la URL que ve quien abre el correo).
       SMTP_URL: smtp://mailpit:1025
       ENLACES_URL: http://localhost:8086

@@ -76,11 +76,24 @@ export function rutasSalida({ repo, pasarela, verificar, operador, secreto, host
   // transferCitizenConfirm: el destino avisa con req_status 1 (todo llegó y ya lo afilió) o 0 (no pudo). Con 1 no basta su palabra:
   // GovCarpeta debe mostrar al ciudadano en otro operador, y solo entonces se agenda el cierre. Idempotente.
   const peer = express.Router()
+  // Sin token: el destino confirma en el endPointConfirm que publicamos en GovCarpeta (ADR-0027); se busca por cédula.
+  peer.post('/', async (req, res, next) => {
+    try {
+      const t = /^[0-9]{6,10}$/.test(String(req.body?.id ?? '')) && await repo.ultimoDe(String(req.body.id))
+      if (!t) return problema(res, 404, 'Traslado no encontrado', 'No hay un traslado de salida para esa cédula.')
+      await confirmarTraslado(t, req, res)
+    } catch (err) { next(err) }
+  })
   peer.post('/:token', async (req, res, next) => {
     try {
       const id = idDeToken(secreto, req.params.token)
       const t = id && await repo.obtener(id)
       if (!t) return problema(res, 404, 'Traslado no encontrado', 'Este enlace de confirmación no corresponde a ningún traslado.')
+      await confirmarTraslado(t, req, res)
+    } catch (err) { next(err) }
+  })
+
+  async function confirmarTraslado(t, req, res) {
       const { id: cedula, req_status: resultado } = req.body ?? {}
       if (!/^[0-9]{6,10}$/.test(String(cedula ?? '')) || ![0, 1].includes(resultado)) return problema(res, 422, 'Confirmación inválida', 'Se exige id y req_status 0 o 1.')
       if (String(cedula) !== t.cedula) return problema(res, 422, 'Confirmación inválida', 'La cédula no corresponde a este traslado.')
@@ -98,8 +111,7 @@ export function rutasSalida({ repo, pasarela, verificar, operador, secreto, host
       if (t.estado !== 'enviado') return problema(res, 409, 'El traslado no espera confirmación')
       await repo.revertir(t.id, `${t.operadorNombre} rechazó la recepción de tu carpeta. Tu carpeta sigue aquí, con todos tus documentos.`)
       res.json({ recibido: true })
-    } catch (err) { next(err) }
-  })
+  }
   return { ciudadano, peer }
 }
 

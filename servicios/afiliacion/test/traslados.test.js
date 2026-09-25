@@ -27,7 +27,7 @@ function repoEnMemoria() {
     porCedula: async (c) => filas.get(c) ?? null,
     porTraslado: async (id) => [...filas.values()].find((f) => f.trasladoId === id) ?? null,
     async crear(f) { const nueva = { trasladoId: randomUUID(), estado: 'traslado', activadoEn: null, ...f }; filas.set(f.cedula, nueva); return nueva },
-    async activar(id) { const f = [...filas.values()].find((x) => x.trasladoId === id); f.activadoEn = new Date(); return f },
+    async activar(id, datos = {}) { const f = [...filas.values()].find((x) => x.trasladoId === id); f.activadoEn = new Date(); f.datos = { ...f.datos, ...datos }; return f },
     async afiliar(cedula, evento) { filas.get(cedula).estado = 'afiliado'; this.eventos.push(evento) },
     async borrar(cedula) { filas.delete(cedula) },
   }
@@ -210,5 +210,46 @@ test('las rutas internas exigen el token de servicio de la interoperabilidad', a
     assert.equal((await pedir('/interno/traslados', { cuerpo: CIUDADANO, servicioDe: 'custodia' })).status, 403)
     assert.equal((await pedir('/interno/traslados/1012345678/completar', { servicioDe: 'portal' })).status, 403)
     assert.equal(f.repo.filas.size, 0)
+  })
+})
+
+// ADR-0027: el formato del curso trae solo cédula, nombre completo y correo. Dirección y celular los da el ciudadano al activar,
+// y la afiliación en GovCarpeta espera a que los tenga.
+const DEL_CURSO = { cedula: '1012345678', nombre: 'Ana María Gil', cuenta: 'ana@otro-operador.co', correoContacto: 'ana@otro-operador.co' }
+
+test('formato del curso: se crea la cuenta sin dirección ni celular y completar espera la activación (425)', async () => {
+  const f = montar()
+  await con(f, async (pedir) => {
+    const r = await pedir('/interno/traslados', { cuerpo: DEL_CURSO })
+    assert.equal(r.status, 201)
+    assert.equal(f.creado.nombre, 'Ana María Gil')
+    const antes = await pedir('/interno/traslados/1012345678/completar')
+    assert.equal(antes.status, 425)
+    assert.equal(f.llamadas.filter((l) => l[0] === 'registrar').length, 0, 'sin dirección no se registra en GovCarpeta')
+  })
+})
+
+test('formato del curso: la activación exige dirección y celular; después completar registra con ellos', async () => {
+  const f = montar()
+  await con(f, async (pedir) => {
+    const { cuerpo: { activacion } } = await pedir('/interno/traslados', { cuerpo: DEL_CURSO })
+    const activar = (cuerpo) => pedir('/traslados/activacion', { cuerpo: { token: activacion, clave: 'una-clave-de-12-o-mas', ...cuerpo } })
+    assert.equal((await activar({})).status, 422, 'faltan dirección y celular')
+    assert.equal((await activar({ direccion: 'Calle 1 # 2-3, Bogotá', telefono: '6011234567' })).status, 422, 'celular inválido')
+    assert.equal(f.repo.filas.get('1012345678').activadoEn, null, 'un intento inválido no consume el enlace')
+    assert.equal((await activar({ direccion: 'Calle 1 # 2-3, Bogotá', telefono: '3009876543' })).status, 200)
+    const r = await pedir('/interno/traslados/1012345678/completar')
+    assert.equal(r.status, 200)
+    assert.deepEqual(f.llamadas.at(-1), ['registrar', { id: '1012345678', nombre: 'Ana María Gil', direccion: 'Calle 1 # 2-3, Bogotá', correo: 'ana@otro-operador.co' }])
+    assert.equal(f.repo.eventos[0].telefono, '3009876543')
+  })
+})
+
+test('formato del curso: si la activación vence sin completarse, completar responde 410 para que el traslado falle', async () => {
+  const f = montar()
+  await con(f, async (pedir) => {
+    await pedir('/interno/traslados', { cuerpo: DEL_CURSO })
+    f.reloj.ahora = new Date(f.reloj.ahora.getTime() + 25 * HORA)
+    assert.equal((await pedir('/interno/traslados/1012345678/completar')).status, 410)
   })
 })

@@ -45,10 +45,15 @@ export function validarTrasladado(d = {}) {
   if (!texto(d.titulo, 120)) return 'Falta el título del documento.'
   if (!['temporal', 'certificado'].includes(d.clase)) return 'La clase debe ser temporal o certificado.'
   if (d.clase === 'certificado' && !texto(d.emisor, 80)) return 'Un Certificado necesita su entidad emisora.'
-  if (!TIPOS.includes(d.tipo)) return 'Solo se aceptan PDF, JPG o PNG.'
-  if (!Number.isInteger(d.tamano) || d.tamano <= 0 || d.tamano > MAX_ARCHIVO) return 'El tamaño declarado no es válido (máximo 10 MB).'
-  if (!/^[0-9a-f]{64}$/.test(d.sha256 ?? '')) return 'El SHA-256 declarado no es válido.'
   try { if (typeof d.url !== 'string' || d.url.length > 2000) throw new Error(); new URL(d.url) } catch { return 'La dirección del documento no es válida.' }
+  return null
+}
+
+// El formato de traslado del curso no declara el tipo (ADR-0027): se reconoce por los primeros bytes.
+export function tipoPorContenido(b) {
+  if (b.subarray(0, 4).toString('latin1') === '%PDF') return 'application/pdf'
+  if (b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return 'image/png'
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return 'image/jpeg'
   return null
 }
 
@@ -171,8 +176,8 @@ export function crearApp({ documentos, verificar, almacen, almacenCertificados, 
     } catch (e) { next(e) }
   })
 
-  // HU-09 · Traslado de entrada. La custodia descarga el documento de la URL del origen, comprueba tamaño y SHA-256 contra lo
-  // declarado (RNF-22) y lo guarda en su almacén, conservando su clase. Idempotente por (origen, id en el origen): un fallo
+  // HU-09 · Traslado de entrada. La custodia descarga el documento de la URL del origen (10 MB de tope), reconoce su tipo y
+  // calcula su huella (RNF-22, ADR-0027) y lo guarda en su almacén, conservando su clase. Idempotente por (origen, id en el origen): un fallo
   // se reintenta sin duplicar. El binario va del origen a la custodia; MS-07 solo orquesta y no lo ve (RI-06).
   interno.post('/traslados/documentos', async (req, res, next) => {
     const invalido = validarTrasladado(req.body)
@@ -183,24 +188,23 @@ export function crearApp({ documentos, verificar, almacen, almacenCertificados, 
       if (previo) return previo.titular === d.cedula ? res.json({ documento: aDocumento(previo) }) : problema(res, 409, 'Documento ya recibido para otro titular')
       let bytes
       try {
-        bytes = await descargar(d.url, { tamano: d.tamano })
+        bytes = await descargar(d.url, { tamano: MAX_ARCHIVO })
       } catch (e) {
         if (!(e instanceof ErrorOrigen)) throw e
         log('warn', 'no se pudo descargar un documento del traslado', { operador: d.operador, detalle: e.message })
         return e.politica ? problema(res, 422, 'Dirección no permitida', e.message) : problema(res, 502, 'No pudimos descargar el documento del operador de origen', e.message)
       }
-      if (bytes.length !== d.tamano || createHash('sha256').update(bytes).digest('hex') !== d.sha256) {
-        return problema(res, 422, 'El archivo no coincide con lo declarado', 'El tamaño o el SHA-256 del archivo descargado no coincide con lo que declaró el operador de origen.')
-      }
+      const tipo = bytes.length ? tipoPorContenido(bytes) : null
+      if (!tipo) return problema(res, 422, 'Formato no permitido', 'El documento del operador de origen no es un PDF, JPG o PNG.')
       const id = randomUUID()
       const alm = d.clase === 'certificado' ? almacenCertificados : almacen
       try {
-        await alm.guardar(`${d.cedula}/${id}`, bytes, d.tipo)
+        await alm.guardar(`${d.cedula}/${id}`, bytes, tipo)
       } catch (e) {
         log('warn', 'almacén no disponible al recibir un documento del traslado', { detalle: e.message })
         return problema(res, 503, 'El almacén no responde', 'No pudimos guardar el documento. Reintenta en unos minutos.')
       }
-      const fila = await documentos.crearTrasladado({ id, titular: d.cedula, titulo: d.titulo.trim(), clase: d.clase, emisor: d.emisor, tipo: d.tipo, tamano: d.tamano, sha256: d.sha256, origen: d.operador, idOrigen: d.idExterno })
+      const fila = await documentos.crearTrasladado({ id, titular: d.cedula, titulo: d.titulo.trim(), clase: d.clase, emisor: d.emisor, tipo, tamano: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex'), origen: d.operador, idOrigen: d.idExterno })
       if (!fila) {
         // Otra solicitud lo recibió primero: se borra el archivo duplicado y se devuelve el que quedó.
         await alm.borrar(`${d.cedula}/${id}`).catch(() => {})

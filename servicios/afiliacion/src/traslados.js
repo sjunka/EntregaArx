@@ -18,15 +18,21 @@ const tokenValido = (secreto, token) => {
   return recibido.length === esperado.length && timingSafeEqual(recibido, esperado) ? id : null
 }
 
+const celular = (v) => typeof v === 'string' && /^3[0-9]{9}$/.test(v)
+
+// El formato de traslado del curso no trae apellido, dirección ni celular (ADR-0027): si llegan se validan; si no, el
+// ciudadano da dirección y celular al activar.
 export function validarTraslado(c = {}) {
   const errores = []
   if (!/^[0-9]{6,10}$/.test(c.cedula ?? '')) errores.push('cedula')
-  for (const [k, max] of [['nombre', 60], ['apellido', 60], ['direccion', 120]]) if (!texto(c[k], max)) errores.push(k)
+  if (!texto(c.nombre, 120)) errores.push('nombre')
+  for (const [k, max] of [['apellido', 60], ['direccion', 120]]) if (c[k] !== undefined && !texto(c[k], max)) errores.push(k)
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c.cuenta ?? '') || c.cuenta.length > 254) errores.push('cuenta')
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(c.correoContacto ?? '')) errores.push('correoContacto')
-  if (typeof c.telefono !== 'string' || !/^3[0-9]{9}$/.test(c.telefono)) errores.push('telefono')
+  if (c.telefono !== undefined && !celular(c.telefono)) errores.push('telefono')
   return errores
 }
+const completo = (d) => texto(d?.direccion, 120) && celular(d?.telefono)
 
 // HU-09 · Traslado de entrada en MS-03. La cuenta institucional (RF-01.5) se crea al recibir el traslado, con una clave
 // aleatoria que nadie conoce: el ciudadano la fija con el enlace de activación. La afiliación en GovCarpeta cambia solo
@@ -63,13 +69,11 @@ export function rutasTraslados({ repo, keycloak, pasarela, verificar, secreto, o
       if (usuario && usuario.cedula !== c.cedula) return problema(res, 409, 'La cuenta institucional ya existe', 'Esa cuenta pertenece a otra persona en este operador.')
       if (usuario) await keycloak.borrar(usuario.id) // resto de un intento anterior sin completar
       // La clave viaja a nadie: es aleatoria y el ciudadano fija la suya con el enlace de activación.
-      const keycloakId = await keycloak.crearDeshabilitado({
-        cuenta, nombre: c.nombre.trim(), apellido: c.apellido.trim(), correoContacto: c.correoContacto, telefono: c.telefono, cedula: c.cedula, clave: randomBytes(24).toString('base64url'),
-      })
-      const fila = await repo.crear({
-        cedula: c.cedula, cuenta, keycloakId, creado: ahora(),
-        datos: { nombre: c.nombre.trim(), apellido: c.apellido.trim(), direccion: c.direccion.trim(), correoContacto: c.correoContacto, telefono: c.telefono },
-      })
+      const datos = {
+        nombre: c.nombre.trim(), apellido: c.apellido?.trim(), direccion: c.direccion?.trim(), correoContacto: c.correoContacto, telefono: c.telefono,
+      }
+      const keycloakId = await keycloak.crearDeshabilitado({ cuenta, ...datos, cedula: c.cedula, clave: randomBytes(24).toString('base64url') })
+      const fila = await repo.crear({ cedula: c.cedula, cuenta, keycloakId, creado: ahora(), datos: JSON.parse(JSON.stringify(datos)) })
       res.status(201).json({ activacion: tokenActivacion(secreto, fila.trasladoId), venceEn: vence(ahora()).toISOString() })
     } catch (e) { next(e) }
   })
@@ -80,6 +84,12 @@ export function rutasTraslados({ repo, keycloak, pasarela, verificar, secreto, o
       const f = await repo.porCedula(req.params.cedula)
       if (!f) return problema(res, 404, 'Traslado no encontrado')
       if (f.estado === 'afiliado') return res.json({ estado: 'afiliado' })
+      // Sin dirección ni celular (formato del curso) se espera la activación; vencida, el traslado falla.
+      if (!completo(f.datos)) {
+        return vence(f.creado) <= ahora()
+          ? problema(res, 410, 'La activación venció', 'El ciudadano no activó su cuenta en 24 horas.')
+          : problema(res, 425, 'Falta la activación', 'El ciudadano aún no activa su cuenta con su dirección y celular.')
+      }
       let afiliacion
       try {
         afiliacion = await pasarela.consultar(f.cedula)
@@ -89,7 +99,7 @@ export function rutasTraslados({ repo, keycloak, pasarela, verificar, secreto, o
       if (afiliacion.afiliado && afiliacion.operador !== operador) return problema(res, 409, 'Afiliado a otro operador', `GovCarpeta lo reporta en ${afiliacion.operador ?? 'otro operador'}: no se registra una segunda afiliación.`)
       if (!afiliacion.afiliado) {
         try {
-          await pasarela.registrar({ id: f.cedula, nombre: `${f.datos.nombre} ${f.datos.apellido}`, direccion: f.datos.direccion, correo: f.cuenta })
+          await pasarela.registrar({ id: f.cedula, nombre: `${f.datos.nombre} ${f.datos.apellido ?? ''}`.trim(), direccion: f.datos.direccion, correo: f.cuenta })
         } catch (e) {
           log('warn', 'registro del traslado en GovCarpeta fallido', { status: e.status, detalle: e.message })
           return problema(res, e.status === 503 ? 503 : 502, 'GovCarpeta no registró la afiliación', e.status === 503 ? 'GovCarpeta no respondió a tiempo.' : e.message)
@@ -119,7 +129,7 @@ export function rutasTraslados({ repo, keycloak, pasarela, verificar, secreto, o
   const publico = express.Router()
   publico.use(express.json({ limit: '1kb' }))
   publico.post('/activacion', async (req, res, next) => {
-    const { token, clave } = req.body ?? {}
+    const { token, clave, direccion, telefono } = req.body ?? {}
     try {
       const id = tokenValido(secreto, token)
       const f = id && await repo.porTraslado(id)
@@ -127,9 +137,11 @@ export function rutasTraslados({ repo, keycloak, pasarela, verificar, secreto, o
       if (f.activadoEn) return problema(res, 409, 'La cuenta ya fue activada', 'Ingresa con tu cuenta institucional y la clave que elegiste.')
       if (vence(f.creado) <= ahora()) return problema(res, 410, 'El enlace venció', 'Los enlaces de activación duran 24 horas.')
       if (typeof clave !== 'string' || clave.length < 12 || clave.length > 64) return problema(res, 422, 'Clave inválida', 'La clave debe tener entre 12 y 64 caracteres.')
+      const faltan = completo(f.datos) ? {} : { direccion: direccion?.trim(), telefono }
+      if (!completo({ ...f.datos, ...faltan })) return problema(res, 422, 'Faltan tus datos', 'Escribe tu dirección de residencia y tu celular (10 dígitos, empieza por 3).')
       await keycloak.fijarClave(f.keycloakId, clave)
       await keycloak.habilitar(f.keycloakId)
-      await repo.activar(f.trasladoId)
+      await repo.activar(f.trasladoId, faltan)
       res.json({ cuenta: f.cuenta })
     } catch (e) { next(e) }
   })
@@ -160,7 +172,7 @@ export function crearRepoTraslados(db) {
       `INSERT INTO ciudadanos (cedula, cuenta, estado, traslado_id, keycloak_id, datos, creado) VALUES ($1, $2, 'traslado', gen_random_uuid(), $3, $4, $5)
        ON CONFLICT (cedula) DO UPDATE SET cuenta = $2, estado = 'traslado', traslado_id = gen_random_uuid(), keycloak_id = $3, datos = $4, creado = $5, activado_en = NULL
        RETURNING *`, [f.cedula, f.cuenta, f.keycloakId, JSON.stringify(f.datos), f.creado]),
-    activar: (id) => uno('UPDATE ciudadanos SET activado_en = now() WHERE traslado_id = $1 AND activado_en IS NULL RETURNING *', [id]),
+    activar: (id, datos = {}) => uno('UPDATE ciudadanos SET activado_en = now(), datos = datos || $2::jsonb WHERE traslado_id = $1 AND activado_en IS NULL RETURNING *', [id, JSON.stringify(datos)]),
     afiliar: (cedula, evento) => db.query(
       `WITH c AS (UPDATE ciudadanos SET estado = 'afiliado' WHERE cedula = $1 AND estado = 'traslado' RETURNING cedula)
        INSERT INTO bandeja (nombre, clave, datos) SELECT 'ciudadano.afiliado', cedula, $2::jsonb FROM c`, [cedula, JSON.stringify(evento)]),

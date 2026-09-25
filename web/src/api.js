@@ -89,8 +89,8 @@ export const envios = () => conSesion('/envios', {}, INTEROPERABILIDAD)
 // Traslado de entrada (HU-09). El avance sale de MS-07 con la sesión del ciudadano (404: no tiene un traslado). La activación es
 // pública: la credencial es el token del enlace y la clave la fija el ciudadano (MS-03).
 export const traslado = () => conSesion('/traslados/actual', {}, INTEROPERABILIDAD).catch((e) => { if (e.status === 404) return null; throw e })
-export const activar = ({ token, clave }) =>
-  pedir(`${AFILIACION}/traslados/activacion`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token, clave }) })
+export const activar = ({ token, clave, direccion, telefono }) =>
+  pedir(`${AFILIACION}/traslados/activacion`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token, clave, direccion, telefono }) })
 
 // HU-11: bitácora de accesos a la Carpeta (MS-02), con filtros por documento y por rango de días.
 export const accesos = (filtros = {}) =>
