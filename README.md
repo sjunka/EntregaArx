@@ -134,3 +134,34 @@ terraform -chdir=infra/terraform destroy        # apagar (el proyecto Atlas y su
 ## Eventos y entidades de prueba
 
 Los esquemas de los eventos están en `contratos/eventos/` y el trabajo `esquemas` de compose los registra en Schema Registry. `infra/entidad-simulada/` hace de universidad: `POST http://localhost:8088/emitir` con `{ "cedula": "...", "titulo": "..." }` firma, sube y confirma un Certificado (opciones de prueba: `firmaInvalida`, `alterarArchivo`, `sinSubir`, `sinConfirmar`, `idExterno`). También pide documentos a un ciudadano con `POST /peticiones` (`{ cedula, proposito, documentos: [{ titulo }] }`) y recoge lo que autorizó con `POST /peticiones/consultar` (`{ id }`). Los correos que envía MS-09 y los envíos de MS-07 a entidades sin operador se ven en Mailpit.
+
+## Cómo diseñar el próximo software
+
+Lección de la materia, para aplicarla en cualquier proyecto nuevo.
+
+- Docker no es microservicios. Docker empaqueta y ejecuta; los microservicios son una decisión de arquitectura y se pueden tomar uno sin el otro.
+- No se usan microservicios por defecto. Primero se definen los requisitos y los atributos de calidad (escalabilidad, disponibilidad, seguridad, tiempo de respuesta). Si esos atributos los piden, se justifican; si no, un monolito modular basta.
+- No se hace la app primero y se le agregan servicios después, ni al revés. Primero el contrato de la API (OpenAPI para peticiones, CloudEvents para eventos); con el contrato acordado, la app y los servicios se construyen en paralelo.
+- Se empieza con pocos servicios y se separan cuando un atributo de calidad lo exige. Un cambio de arquitectura exige un ADR aprobado antes de hacerlo.
+- Los servicios se dividen por dominio (custodia, autorizaciones, afiliación), no por tipo de cliente. Web y móvil son clientes de la misma API.
+- Reglas que sostienen la separación: servicios sin estado (RD-02), una base de datos por servicio (RD-11), binarios por URL prefirmada (RI-06) y eventos con salida transaccional.
+
+### App móvil
+
+El backend no cambia; cambia la forma de usarlo.
+
+- Login con OIDC y PKCE, y el token guardado en el almacén seguro del teléfono (Keychain en iOS, Keystore en Android).
+- Archivos por URL prefirmada, directo al almacén.
+- Notificaciones push además del correo.
+- Un BFF (backend para el front) es opcional: agrega varias llamadas en una y devuelve menos datos.
+
+Ejemplo, una app móvil de pedidos de comida:
+
+1. `identidad`: login OIDC y perfiles. Base propia.
+2. `catalogo`: restaurantes y menús. Se lee mucho, se escribe poco; escala por réplicas y caché.
+3. `pedidos`: crea el pedido y guarda el evento `PedidoCreado` en la bandeja de salida, en la misma transacción.
+4. `pagos`: consume `PedidoCreado`, cobra y publica `PagoAprobado`.
+5. `entregas`: recibe la ubicación del repartidor y asigna pedidos. Escala aparte, porque recibe más tráfico.
+6. `notificaciones`: consume los eventos y envía la push al teléfono.
+
+La app habla con un API gateway o un BFF. Quien pide la comida solo ve un `POST /pedidos`; lo demás ocurre por eventos y, si `notificaciones` cae, el pedido y el pago siguen funcionando.
